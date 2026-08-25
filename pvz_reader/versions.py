@@ -167,12 +167,12 @@ OFFSETS = {
 
         # -------------------------------------------------
         # Grid items
-        # GOTY 1.2.0.1073
+        # GOTY 1.2.0.1073 - live validated
         # -------------------------------------------------
         "grid_item": 0x134,
         "grid_item_count_max": 0x138,
 
-        "grid_item_struct_size": 0xEC,  # provisional, validate live
+        "grid_item_struct_size": 0xEC,
 
         "grid_item_type": 0x08,
         "grid_item_col": 0x10,
