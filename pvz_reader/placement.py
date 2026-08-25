@@ -355,5 +355,46 @@ def can_plant(
     return PlacementResult(True, "valid")
 
 
+def build_placement_mask(state: "GameState") -> list[list[list[bool]]]:
+    """Build a current ``[seed_slot][row][col]`` placement-validity mask.
+
+    Each layer uses the seed packet's actual slot and delegates every tile
+    decision to :func:`can_plant`.  The reader currently supplies contiguous
+    seed slots; if a sparse state is supplied, absent slots have all-false
+    layers so the returned indexes still match actual slot numbers.
+    """
+    if not state.seeds:
+        return []
+
+    mask = [
+        [[False for _ in range(BOARD_COLS)] for _ in range(BOARD_ROWS)]
+        for _ in range(max(seed.slot for seed in state.seeds) + 1)
+    ]
+
+    for seed in state.seeds:
+        mask[seed.slot] = [
+            [
+                can_plant(state, seed.slot, row, col).valid
+                for col in range(BOARD_COLS)
+            ]
+            for row in range(BOARD_ROWS)
+        ]
+
+    return mask
+
+
+def valid_placements_for_seed(
+    state: "GameState",
+    seed_slot: int,
+) -> list[tuple[int, int]]:
+    """Return all currently legal ``(row, col)`` coordinates for a seed."""
+    return [
+        (row, col)
+        for row in range(BOARD_ROWS)
+        for col in range(BOARD_COLS)
+        if can_plant(state, seed_slot, row, col).valid
+    ]
+
+
 # Kept as an alias for callers using the initial placement helper name.
 check_placement = can_plant

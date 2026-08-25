@@ -8,7 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pvz_reader.placement import can_plant
+from pvz_reader.placement import build_placement_mask, can_plant
 
 
 def make_state(
@@ -380,6 +380,73 @@ class PlacementTests(unittest.TestCase):
 
         self.assertFalse(result.valid)
         self.assertEqual(result.reason, "cob_cannon_requires_kernel_pair")
+
+    def test_placement_mask_dimensions_and_valid_tile(self):
+        mask = build_placement_mask(make_state())
+
+        self.assertEqual(len(mask), 1)
+        self.assertEqual(len(mask[0]), 6)
+        self.assertEqual(len(mask[0][0]), 9)
+        self.assertTrue(mask[0][2][4])
+
+    def test_placement_mask_rejects_occupied_grave_and_crater_tiles(self):
+        occupied_mask = build_placement_mask(
+            make_state(plants=[SimpleNamespace(row=2, col=4, type_id=0)])
+        )
+        grave_mask = build_placement_mask(
+            make_state(
+                grid_items=[
+                    SimpleNamespace(row=2, col=4, type_id=1, dead=False)
+                ]
+            )
+        )
+        crater_mask = build_placement_mask(
+            make_state(
+                grid_items=[
+                    SimpleNamespace(row=2, col=4, type_id=2, dead=False)
+                ]
+            )
+        )
+
+        self.assertFalse(occupied_mask[0][2][4])
+        self.assertFalse(grave_mask[0][2][4])
+        self.assertFalse(crater_mask[0][2][4])
+
+    def test_placement_mask_has_no_tiles_for_unavailable_seed(self):
+        not_ready_mask = build_placement_mask(make_state(ready=False))
+        unaffordable_mask = build_placement_mask(make_state(affordable=False))
+
+        self.assertFalse(
+            any(cell for row in not_ready_mask[0] for cell in row)
+        )
+        self.assertFalse(
+            any(cell for row in unaffordable_mask[0] for cell in row)
+        )
+
+    def test_placement_mask_inherits_roof_pool_and_special_rules(self):
+        roof_mask = build_placement_mask(make_state(scene=4))
+        pool_mask = build_placement_mask(make_state(scene=2))
+        grave_buster_mask = build_placement_mask(
+            make_state(
+                seed_type_id=11,
+                grid_items=[
+                    SimpleNamespace(row=2, col=4, type_id=1, dead=False)
+                ],
+            )
+        )
+
+        self.assertFalse(roof_mask[0][2][4])
+        self.assertFalse(pool_mask[0][2][4])
+        self.assertTrue(grave_buster_mask[0][2][4])
+
+    def test_rebuilding_placement_mask_reflects_state_changes(self):
+        state = make_state()
+        before = build_placement_mask(state)
+        state.plants.append(SimpleNamespace(row=2, col=4, type_id=0))
+        after = build_placement_mask(state)
+
+        self.assertTrue(before[0][2][4])
+        self.assertFalse(after[0][2][4])
 
 
 if __name__ == "__main__":
