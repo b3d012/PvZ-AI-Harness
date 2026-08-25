@@ -143,6 +143,22 @@ ZOMBIE_NAMES = [
     "Giga Gargantuar",
 ]
 
+PICKUP_NAMES = {
+    0: "None",
+    1: "Silver Coin",
+    2: "Gold Coin",
+    3: "Diamond",
+    4: "Sun",
+    5: "Small Sun",
+    6: "Large Sun",
+}
+
+GRID_ITEM_NAMES = {
+    1: "Grave",
+    2: "Crater",
+    3: "Ladder",
+}
+
 
 @dataclass
 class PlantState:
@@ -216,6 +232,22 @@ class SeedPacketState:
     use_counter: int
 
 @dataclass
+class PickupState:
+    slot: int
+
+    type_id: int
+    name: str
+
+    x: float
+    y: float
+
+    collected: bool
+    timer: int
+
+    collectible: bool
+    is_sun: bool
+
+@dataclass
 class WaveState:
     total_waves: int
 
@@ -252,6 +284,18 @@ class LawnMowerState:
     available: bool
 
 @dataclass
+class GridItemState:
+    slot: int
+
+    type_id: int
+    name: str
+
+    row: int
+    col: int
+
+    dead: bool
+
+@dataclass
 class GameState:
     sun: int
     game_clock: int
@@ -268,6 +312,8 @@ class GameState:
     zombies: list[ZombieState]
     seeds: list[SeedPacketState]
     mowers: list[LawnMowerState]
+    pickups: list[PickupState]
+    grid_items: list[GridItemState]
 
     def to_dict(self):
         return asdict(self)
@@ -305,6 +351,20 @@ class PvZGameStateReader:
 
         return f"UnknownZombie({type_id})"
 
+    @staticmethod
+    def _pickup_name(type_id: int) -> str:
+        return PICKUP_NAMES.get(
+            type_id,
+            f"UnknownPickup({type_id})"
+        )
+
+    @staticmethod
+    def _grid_item_name(type_id: int) -> str:
+        return GRID_ITEM_NAMES.get(
+            type_id,
+            f"UnknownGridItem({type_id})"
+        )
+        
     def read_plants(self, board: int) -> list[PlantState]:
         plant_array = self.memory.read_pointer(
             board + self.o["plant"]
@@ -854,6 +914,148 @@ class PvZGameStateReader:
 
         return mowers
 
+    def read_pickups(self, board: int) -> list[PickupState]:
+        pickup_array = self.memory.read_pointer(
+            board + self.o["pickup"]
+        )
+
+        if pickup_array == 0:
+            return []
+
+        capacity = self.memory.read_uint(
+            board + self.o["pickup_count_max"]
+        )
+
+        # Safety guard against invalid pointers / corrupt offsets.
+        if capacity > 1000:
+            return []
+
+        struct_size = self.o["pickup_struct_size"]
+
+        pickups = []
+
+        for i in range(capacity):
+            addr = pickup_array + i * struct_size
+
+            type_id = self.memory.read_int(
+                addr + self.o["pickup_type"]
+            )
+
+            # Zero means unused slot.
+            #
+            # Keep the upper bound somewhat loose because there are
+            # collectible types outside the basic sun/coin set.
+            if not (1 <= type_id <= 50):
+                continue
+
+            collected = self.memory.read_bool(
+                addr + self.o["pickup_collected"]
+            )
+
+            if collected:
+                continue
+
+            x = self.memory.read_float(
+                addr + self.o["pickup_x"]
+            )
+
+            y = self.memory.read_float(
+                addr + self.o["pickup_y"]
+            )
+
+            timer = self.memory.read_int(
+                addr + self.o["pickup_timer"]
+            )
+
+            is_sun = type_id in (4, 5, 6)
+
+            # A pickup is actionable by the future controller while
+            # it still exists and has not already been clicked.
+            collectible = not collected
+
+            pickups.append(
+                PickupState(
+                    slot=i,
+
+                    type_id=type_id,
+                    name=self._pickup_name(type_id),
+
+                    x=x,
+                    y=y,
+
+                    collected=collected,
+                    timer=timer,
+
+                    collectible=collectible,
+                    is_sun=is_sun,
+                )
+            )
+
+        return pickups
+
+    def read_grid_items(self, board: int) -> list[GridItemState]:
+        grid_array = self.memory.read_pointer(
+            board + self.o["grid_item"]
+        )
+
+        if grid_array == 0:
+            return []
+
+        capacity = self.memory.read_uint(
+            board + self.o["grid_item_count_max"]
+        )
+
+        if capacity > 1000:
+            return []
+
+        struct_size = self.o["grid_item_struct_size"]
+
+        items = []
+
+        for i in range(capacity):
+            addr = grid_array + i * struct_size
+
+            dead = self.memory.read_bool(
+                addr + self.o["grid_item_dead"]
+            )
+
+            if dead:
+                continue
+
+            type_id = self.memory.read_int(
+                addr + self.o["grid_item_type"]
+            )
+
+            row = self.memory.read_int(
+                addr + self.o["grid_item_row"]
+            )
+
+            col = self.memory.read_int(
+                addr + self.o["grid_item_col"]
+            )
+
+            if not (0 <= row <= 5):
+                continue
+
+            if not (0 <= col <= 8):
+                continue
+
+            if not (1 <= type_id <= 50):
+                continue
+
+            items.append(
+                GridItemState(
+                    slot=i,
+                    type_id=type_id,
+                    name=self._grid_item_name(type_id),
+                    row=row,
+                    col=col,
+                    dead=dead,
+                )
+            )
+
+        return items
+
     def read(self) -> Optional[GameState]:
         board = self.get_board()
 
@@ -865,6 +1067,17 @@ class PvZGameStateReader:
         seeds = self.read_seed_bank(board)
         wave = self.read_wave_state(board)
         mowers = self.read_lawn_mowers(board)
+        pickups = self.read_pickups(board)
+        grid_items = self.read_grid_items(board)
+
+        # TEMPORARY TEST
+        for item in grid_items:
+            print(
+                item.name,
+                item.row,
+                item.col,
+                item.dead
+            )
 
         return GameState(
             sun=self.memory.read_int(
@@ -900,4 +1113,6 @@ class PvZGameStateReader:
             seeds=seeds,
             wave=wave,
             mowers=mowers,
+            pickups=pickups,
+            grid_items=grid_items,
         )
