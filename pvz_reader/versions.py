@@ -148,5 +148,35 @@ OFFSETS = {
 
         "lawn_mower_type": 0x34,
         "lawn_mower_id": 0x44,
-    }
+
+        # -------------------------------------------------
+        # Pickups / floating items
+        # GOTY 1.2.0.1073 - live validated
+        # -------------------------------------------------
+        "pickup": 0xFC,
+        "pickup_count_max": 0x100,
+
+        "pickup_struct_size": 0xD8,
+
+        "pickup_x": 0x24,
+        "pickup_y": 0x28,
+
+        "pickup_collected": 0x50,
+        "pickup_timer": 0x54,
+        "pickup_type": 0x58,
+
+        # -------------------------------------------------
+        # Grid items
+        # GOTY 1.2.0.1073
+        # -------------------------------------------------
+        "grid_item": 0x134,
+        "grid_item_count_max": 0x138,
+
+        "grid_item_struct_size": 0xEC,  # provisional, validate live
+
+        "grid_item_type": 0x08,
+        "grid_item_col": 0x10,
+        "grid_item_row": 0x14,
+        "grid_item_dead": 0x20,
+            }
 }
