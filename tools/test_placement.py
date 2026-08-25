@@ -156,6 +156,180 @@ class PlacementTests(unittest.TestCase):
         self.assertTrue(result.valid)
         self.assertEqual(result.reason, "valid")
 
+    def test_grave_buster_on_grave(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=11,
+                grid_items=[
+                    SimpleNamespace(row=2, col=4, type_id=1, dead=False)
+                ],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_grave_buster_without_grave(self):
+        result = can_plant(make_state(seed_type_id=11), 0, 2, 4)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "grave_buster_requires_grave")
+
+    def test_coffee_bean_on_sleeping_mushroom(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=35,
+                plants=[
+                    SimpleNamespace(row=2, col=4, type_id=8, asleep=True)
+                ],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_coffee_bean_on_awake_mushroom(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=35,
+                plants=[
+                    SimpleNamespace(row=2, col=4, type_id=8, asleep=False)
+                ],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "coffee_target_awake")
+
+    def test_coffee_bean_on_non_mushroom(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=35,
+                plants=[
+                    SimpleNamespace(row=2, col=4, type_id=0, asleep=False)
+                ],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "coffee_target_not_mushroom")
+
+    def test_pumpkin_over_normal_plant(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=30,
+                plants=[SimpleNamespace(row=2, col=4, type_id=0)],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_pumpkin_when_pumpkin_already_present(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=30,
+                plants=[SimpleNamespace(row=2, col=4, type_id=30)],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "pumpkin_already_present")
+
+    def test_gatling_pea_on_repeater(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=40,
+                plants=[SimpleNamespace(row=2, col=4, type_id=7)],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_gatling_pea_without_repeater(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=40,
+                plants=[SimpleNamespace(row=2, col=4, type_id=0)],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "upgrade_requires_base")
+
+    def test_cob_cannon_on_adjacent_kernel_pults(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=47,
+                plants=[
+                    SimpleNamespace(row=2, col=4, type_id=34),
+                    SimpleNamespace(row=2, col=5, type_id=34),
+                ],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_cob_cannon_with_one_kernel_pult(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=47,
+                plants=[SimpleNamespace(row=2, col=4, type_id=34)],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "cob_cannon_requires_kernel_pair")
+
+    def test_cob_cannon_with_non_adjacent_kernel_pults(self):
+        result = can_plant(
+            make_state(
+                seed_type_id=47,
+                plants=[
+                    SimpleNamespace(row=2, col=4, type_id=34),
+                    SimpleNamespace(row=2, col=6, type_id=34),
+                ],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "cob_cannon_requires_kernel_pair")
+
 
 if __name__ == "__main__":
     unittest.main()
