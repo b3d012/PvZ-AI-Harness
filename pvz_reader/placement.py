@@ -38,9 +38,13 @@ GOLD_MAGNET_TYPE_ID = 45
 SPIKEROCK_TYPE_ID = 46
 COB_CANNON_TYPE_ID = 47
 
-# These plants have their own water-placement behavior, which is not modelled
-# in this phase.  Rejecting them on water avoids incorrectly approving them.
-UNSUPPORTED_WATER_PLANT_TYPE_IDS = frozenset({19, 24})
+# These plants may be placed directly on empty pool/fog water tiles.
+TANGLE_KELP_TYPE_ID = 19
+SEA_SHROOM_TYPE_ID = 24
+DIRECT_WATER_PLANT_TYPE_IDS = frozenset({
+    TANGLE_KELP_TYPE_ID,
+    SEA_SHROOM_TYPE_ID,
+})
 
 GRAVE_GRID_ITEM_TYPE_ID = 1
 CRATER_GRID_ITEM_TYPE_ID = 2
@@ -135,6 +139,12 @@ def _terrain_result(
     tile_plants,
 ) -> PlacementResult | None:
     """Return an unmet terrain requirement, if this tile has one."""
+    if (
+        plant_type_id in DIRECT_WATER_PLANT_TYPE_IDS
+        and not _is_pool_water_tile(state, row)
+    ):
+        return PlacementResult(False, "aquatic_requires_water")
+
     if _is_roof_scene(state.scene):
         if (
             plant_type_id != FLOWER_POT_TYPE_ID
@@ -143,11 +153,9 @@ def _terrain_result(
             return PlacementResult(False, "roof_requires_flower_pot")
 
     elif _is_pool_water_tile(state, row):
-        if plant_type_id in UNSUPPORTED_WATER_PLANT_TYPE_IDS:
-            return PlacementResult(False, "unsupported_water_plant")
-
         if (
-            plant_type_id != LILY_PAD_TYPE_ID
+            plant_type_id not in DIRECT_WATER_PLANT_TYPE_IDS
+            and plant_type_id != LILY_PAD_TYPE_ID
             and not _tile_has_plant_type(tile_plants, LILY_PAD_TYPE_ID)
         ):
             return PlacementResult(False, "water_requires_lily_pad")
@@ -220,8 +228,10 @@ def can_plant(
     """Return whether ``seed_slot`` can be planted at a grass-tile location.
 
     Roof tiles require Flower Pot support for ordinary plants.  Pool/fog water
-    rows require Lily Pad support for ordinary land plants.  Only Grave Buster,
-    Coffee Bean, Pumpkin, and the listed plant upgrades have special handling.
+    rows require Lily Pad support for ordinary land plants, while Tangle Kelp
+    and Sea-shroom are permitted directly on empty water tiles.  Only Grave
+    Buster, Coffee Bean, Pumpkin, and the listed plant upgrades have other
+    special handling.
 
     ``reason`` is ``"valid"`` for a permitted placement; otherwise it is a
     stable machine-readable reason code.
@@ -330,7 +340,8 @@ def can_plant(
 
     elif _is_pool_water_tile(state, row):
         if tile_plants and (
-            plant_type_id == LILY_PAD_TYPE_ID
+            plant_type_id in DIRECT_WATER_PLANT_TYPE_IDS
+            or plant_type_id == LILY_PAD_TYPE_ID
             or _tile_has_non_support_plant(
                 tile_plants,
                 LILY_PAD_TYPE_ID,

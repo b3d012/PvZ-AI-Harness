@@ -156,6 +156,57 @@ class PlacementTests(unittest.TestCase):
         self.assertTrue(result.valid)
         self.assertEqual(result.reason, "valid")
 
+    def test_tangle_kelp_on_water_without_lily_pad(self):
+        result = can_plant(make_state(scene=2, seed_type_id=19), 0, 2, 4)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_tangle_kelp_on_land_tile(self):
+        result = can_plant(make_state(scene=2, seed_type_id=19), 0, 1, 4)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "aquatic_requires_water")
+
+    def test_tangle_kelp_on_roof(self):
+        result = can_plant(make_state(scene=4, seed_type_id=19), 0, 2, 4)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "aquatic_requires_water")
+
+    def test_sea_shroom_on_water_without_lily_pad(self):
+        result = can_plant(make_state(scene=2, seed_type_id=24), 0, 2, 4)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
+    def test_sea_shroom_on_land_tile(self):
+        result = can_plant(make_state(scene=2, seed_type_id=24), 0, 1, 4)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "aquatic_requires_water")
+
+    def test_sea_shroom_on_roof(self):
+        result = can_plant(make_state(scene=4, seed_type_id=24), 0, 2, 4)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(result.reason, "aquatic_requires_water")
+
+    def test_cattail_on_lily_pad(self):
+        result = can_plant(
+            make_state(
+                scene=2,
+                seed_type_id=43,
+                plants=[SimpleNamespace(row=2, col=4, type_id=16)],
+            ),
+            0,
+            2,
+            4,
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.reason, "valid")
+
     def test_grave_buster_on_grave(self):
         result = can_plant(
             make_state(
