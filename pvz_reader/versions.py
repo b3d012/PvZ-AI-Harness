@@ -178,5 +178,21 @@ OFFSETS = {
         "grid_item_col": 0x10,
         "grid_item_row": 0x14,
         "grid_item_dead": 0x20,
-            }
+        
+        # -------------------------------------------------
+        # Projectiles
+        # GOTY 1.2.0.1073 - live validated
+        # -------------------------------------------------
+        "projectile": 0xE0,
+        "projectile_count_max": 0xE4,
+
+        "projectile_struct_size": 0x94,
+
+        "projectile_row": 0x1C,
+        "projectile_x": 0x30,
+        "projectile_y": 0x34,
+        "projectile_type": 0x5C,
+        "projectile_can_collide": 0x74,
+        "projectile_id": 0x90,
+    }
 }

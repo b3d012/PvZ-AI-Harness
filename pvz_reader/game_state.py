@@ -159,6 +159,23 @@ GRID_ITEM_NAMES = {
     3: "Ladder",
 }
 
+PROJECTILE_NAMES = {
+    0: "Pea",
+    1: "Snow Pea",
+    2: "Cabbage",
+    3: "Melon",
+    4: "Puff",
+    5: "Winter Melon",
+    6: "Fireball",
+    7: "Star",
+    8: "Spike",
+    9: "Basketball",
+    10: "Kernel",
+    11: "Cob",
+    12: "Butter",
+    13: "Zombie Pea",
+}
+
 
 @dataclass
 class PlantState:
@@ -248,6 +265,21 @@ class PickupState:
     is_sun: bool
 
 @dataclass
+class ProjectileState:
+    slot: int
+
+    type_id: int
+    name: str
+
+    row: int
+
+    x: float
+    y: float
+
+    can_collide: bool
+    object_id: int
+
+@dataclass
 class WaveState:
     total_waves: int
 
@@ -313,6 +345,7 @@ class GameState:
     seeds: list[SeedPacketState]
     mowers: list[LawnMowerState]
     pickups: list[PickupState]
+    projectiles: list[ProjectileState]
     grid_items: list[GridItemState]
 
     def to_dict(self):
@@ -363,6 +396,13 @@ class PvZGameStateReader:
         return GRID_ITEM_NAMES.get(
             type_id,
             f"UnknownGridItem({type_id})"
+        )
+
+    @staticmethod
+    def _projectile_name(type_id: int) -> str:
+        return PROJECTILE_NAMES.get(
+            type_id,
+            f"UnknownProjectile({type_id})"
         )
         
     def read_plants(self, board: int) -> list[PlantState]:
@@ -993,6 +1033,68 @@ class PvZGameStateReader:
 
         return pickups
 
+    def read_projectiles(self, board: int) -> list[ProjectileState]:
+        projectile_array = self.memory.read_pointer(
+            board + self.o["projectile"]
+        )
+
+        if projectile_array == 0:
+            return []
+
+        capacity = self.memory.read_uint(
+            board + self.o["projectile_count_max"]
+        )
+
+        # Guard against corrupt pointers or invalid offsets.  Live gameplay
+        # uses far fewer entries, but several simultaneous shots are normal.
+        if capacity > 5000:
+            return []
+
+        struct_size = self.o["projectile_struct_size"]
+        projectiles = []
+
+        for i in range(capacity):
+            addr = projectile_array + i * struct_size
+
+            type_id = self.memory.read_int(
+                addr + self.o["projectile_type"]
+            )
+
+            row = self.memory.read_int(
+                addr + self.o["projectile_row"]
+            )
+
+            # Keep this range deliberately wider than the known name map so
+            # valid, unmapped projectile types remain available to callers.
+            if not (0 <= type_id <= 50):
+                continue
+
+            if not (0 <= row <= 5):
+                continue
+
+            projectiles.append(
+                ProjectileState(
+                    slot=i,
+                    type_id=type_id,
+                    name=self._projectile_name(type_id),
+                    row=row,
+                    x=self.memory.read_float(
+                        addr + self.o["projectile_x"]
+                    ),
+                    y=self.memory.read_float(
+                        addr + self.o["projectile_y"]
+                    ),
+                    can_collide=self.memory.read_bool(
+                        addr + self.o["projectile_can_collide"]
+                    ),
+                    object_id=self.memory.read_int(
+                        addr + self.o["projectile_id"]
+                    ),
+                )
+            )
+
+        return projectiles
+
     def read_grid_items(self, board: int) -> list[GridItemState]:
         grid_array = self.memory.read_pointer(
             board + self.o["grid_item"]
@@ -1068,6 +1170,7 @@ class PvZGameStateReader:
         wave = self.read_wave_state(board)
         mowers = self.read_lawn_mowers(board)
         pickups = self.read_pickups(board)
+        projectiles = self.read_projectiles(board)
         grid_items = self.read_grid_items(board)
 
         # TEMPORARY TEST
@@ -1114,5 +1217,6 @@ class PvZGameStateReader:
             wave=wave,
             mowers=mowers,
             pickups=pickups,
+            projectiles=projectiles,
             grid_items=grid_items,
         )
