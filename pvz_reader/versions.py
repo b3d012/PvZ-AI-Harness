@@ -111,5 +111,42 @@ OFFSETS = {
         "slot_seed_ready": 0x70,
         "slot_seed_cooling_down": 0x71,
         "slot_seed_use_counter": 0x74,
+
+        # -------------------------------------------------
+        # Wave state
+        # GOTY 1.2.0.1073 - live validated
+        # -------------------------------------------------
+        "wave_count": 0x557C,
+
+        "current_wave": 0x5594,
+        "refreshed_wave": 0x5598,
+
+        "refresh_hp": 0x55AC,
+        "current_wave_hp": 0x55B0,
+
+        "next_wave_countdown": 0x55B4,
+        "next_wave_countdown_initial": 0x55B8,
+
+        "huge_wave_countdown": 0x55BC,
+
+        # -------------------------------------------------
+        # Lawn mowers
+        # -------------------------------------------------
+        "lawn_mower": 0x118,
+        "lawn_mower_count_max": 0x11C,
+        "lawn_mower_count": 0x128,
+
+        "lawn_mower_struct_size": 0x48,
+
+        "lawn_mower_x": 0x08,
+        "lawn_mower_y": 0x0C,
+        "lawn_mower_row": 0x14,
+
+        "lawn_mower_state": 0x2C,
+        "lawn_mower_dead": 0x30,
+        "lawn_mower_visible": 0x31,
+
+        "lawn_mower_type": 0x34,
+        "lawn_mower_id": 0x44,
     }
 }

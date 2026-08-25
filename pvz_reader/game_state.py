@@ -216,6 +216,42 @@ class SeedPacketState:
     use_counter: int
 
 @dataclass
+class WaveState:
+    total_waves: int
+
+    spawned_waves: int
+    refreshed_waves: int
+
+    next_wave_countdown: int
+    next_wave_countdown_initial: int
+    next_wave_timer_ratio: float
+
+    huge_wave_countdown: int
+    huge_wave_incoming: bool
+
+    refresh_hp: int
+    current_wave_hp: int
+
+@dataclass
+class LawnMowerState:
+    slot: int
+
+    row: int
+
+    x: float
+    y: float
+
+    state: int
+    type_id: int
+
+    visible: bool
+    dead: bool
+
+    object_id: int
+
+    available: bool
+
+@dataclass
 class GameState:
     sun: int
     game_clock: int
@@ -226,10 +262,12 @@ class GameState:
     plant_capacity: int
     zombie_capacity: int
 
+    wave: WaveState
+
     plants: list[PlantState]
     zombies: list[ZombieState]
-
     seeds: list[SeedPacketState]
+    mowers: list[LawnMowerState]
 
     def to_dict(self):
         return asdict(self)
@@ -653,6 +691,168 @@ class PvZGameStateReader:
 
         return seeds
 
+    def read_wave_state(self, board: int) -> WaveState:
+        total_waves = self.memory.read_int(
+            board + self.o["wave_count"]
+        )
+
+        spawned_waves = self.memory.read_int(
+            board + self.o["current_wave"]
+        )
+
+        refreshed_waves = self.memory.read_int(
+            board + self.o["refreshed_wave"]
+        )
+
+        next_wave_countdown = self.memory.read_int(
+            board + self.o["next_wave_countdown"]
+        )
+
+        next_wave_countdown_initial = self.memory.read_int(
+            board + self.o["next_wave_countdown_initial"]
+        )
+
+        huge_wave_countdown = self.memory.read_int(
+            board + self.o["huge_wave_countdown"]
+        )
+
+        refresh_hp = self.memory.read_int(
+            board + self.o["refresh_hp"]
+        )
+
+        current_wave_hp = self.memory.read_int(
+            board + self.o["current_wave_hp"]
+        )
+
+        # How far through the current next-wave timer we are.
+        #
+        # 0.0 = timer has just started
+        # 1.0 = next wave is due
+        if next_wave_countdown_initial > 0:
+            next_wave_timer_ratio = (
+                1.0
+                - (
+                    next_wave_countdown
+                    / next_wave_countdown_initial
+                )
+            )
+
+            next_wave_timer_ratio = max(
+                0.0,
+                min(1.0, next_wave_timer_ratio)
+            )
+        else:
+            next_wave_timer_ratio = 0.0
+
+        # During your flag-wave test this changed from 0
+        # to a positive countdown value.
+        huge_wave_incoming = huge_wave_countdown > 0
+
+        return WaveState(
+            total_waves=total_waves,
+
+            spawned_waves=spawned_waves,
+            refreshed_waves=refreshed_waves,
+
+            next_wave_countdown=next_wave_countdown,
+            next_wave_countdown_initial=next_wave_countdown_initial,
+            next_wave_timer_ratio=next_wave_timer_ratio,
+
+            huge_wave_countdown=huge_wave_countdown,
+            huge_wave_incoming=huge_wave_incoming,
+
+            refresh_hp=refresh_hp,
+            current_wave_hp=current_wave_hp,
+        )
+
+    def read_lawn_mowers(self, board: int) -> list[LawnMowerState]:
+        mower_array = self.memory.read_pointer(
+            board + self.o["lawn_mower"]
+        )
+
+        if mower_array == 0:
+            return []
+
+        capacity = self.memory.read_uint(
+            board + self.o["lawn_mower_count_max"]
+        )
+
+        # Sanity guard. Normal gameplay has <= 6 rows.
+        if capacity > 20:
+            return []
+
+        struct_size = self.o["lawn_mower_struct_size"]
+
+        mowers = []
+
+        for i in range(capacity):
+            addr = mower_array + i * struct_size
+
+            dead = self.memory.read_bool(
+                addr + self.o["lawn_mower_dead"]
+            )
+
+            row = self.memory.read_int(
+                addr + self.o["lawn_mower_row"]
+            )
+
+            # Ignore unused/garbage array entries.
+            if not (0 <= row <= 5):
+                continue
+
+            visible = self.memory.read_bool(
+                addr + self.o["lawn_mower_visible"]
+            )
+
+            state = self.memory.read_int(
+                addr + self.o["lawn_mower_state"]
+            )
+
+            type_id = self.memory.read_int(
+                addr + self.o["lawn_mower_type"]
+            )
+
+            x = self.memory.read_float(
+                addr + self.o["lawn_mower_x"]
+            )
+
+            y = self.memory.read_float(
+                addr + self.o["lawn_mower_y"]
+            )
+
+            object_id = self.memory.read_int(
+                addr + self.o["lawn_mower_id"]
+            )
+
+            # For the AI, the important question is whether this
+            # row still has its emergency mower available.
+            available = (
+                not dead
+                and visible
+            )
+
+            mowers.append(
+                LawnMowerState(
+                    slot=i,
+
+                    row=row,
+
+                    x=x,
+                    y=y,
+
+                    state=state,
+                    type_id=type_id,
+
+                    visible=visible,
+                    dead=dead,
+
+                    object_id=object_id,
+
+                    available=available,
+                )
+            )
+
+        return mowers
 
     def read(self) -> Optional[GameState]:
         board = self.get_board()
@@ -663,6 +863,8 @@ class PvZGameStateReader:
         plants = self.read_plants(board)
         zombies = self.read_zombies(board)
         seeds = self.read_seed_bank(board)
+        wave = self.read_wave_state(board)
+        mowers = self.read_lawn_mowers(board)
 
         return GameState(
             sun=self.memory.read_int(
@@ -696,4 +898,6 @@ class PvZGameStateReader:
             plants=plants,
             zombies=zombies,
             seeds=seeds,
+            wave=wave,
+            mowers=mowers,
         )

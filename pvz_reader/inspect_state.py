@@ -113,6 +113,45 @@ def main():
                     f"{status:<8}"
                 )
 
+            wave = state.wave
+
+            print()
+            print("WAVE STATE")
+            print("-" * 75)
+
+            print(
+                f"Spawned: {wave.spawned_waves}/{wave.total_waves}   "
+                f"Refreshed: {wave.refreshed_waves}   "
+                f"Next: {wave.next_wave_countdown}/"
+                f"{wave.next_wave_countdown_initial} "
+                f"({wave.next_wave_timer_ratio * 100:5.1f}%)"
+            )
+
+            print(
+                f"Huge countdown: {wave.huge_wave_countdown:<5} "
+                f"Incoming: {wave.huge_wave_incoming}   "
+                f"RefreshHP: {wave.refresh_hp:<5} "
+                f"WaveHP: {wave.current_wave_hp}"
+            )
+
+            print()
+            print(f"Lawn mowers: {len(state.mowers)}")
+            print("-" * 75)
+
+            for mower in state.mowers:
+                status = "AVAILABLE" if mower.available else "USED/GONE"
+
+                print(
+                    f"M[{mower.slot:02}] "
+                    f"R{mower.row + 1} "
+                    f"XY=({mower.x:7.1f},{mower.y:7.1f}) "
+                    f"state={mower.state:<3} "
+                    f"type={mower.type_id:<3} "
+                    f"visible={mower.visible} "
+                    f"dead={mower.dead} "
+                    f"{status}"
+                )
+
             print()
             print("Ctrl+C to stop")
 
