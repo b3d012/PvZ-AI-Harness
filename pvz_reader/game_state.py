@@ -5,6 +5,10 @@ from pvz_reader.memory import MemoryReader
 from pvz_reader.versions import OFFSETS, PVZ_VERSION
 
 
+# Stable schema for the strategic observation interface exposed by GameState.
+GAME_STATE_SCHEMA_VERSION = 1
+
+
 PLANT_NAMES = [
     "Peashooter",
     "Sunflower",
@@ -179,6 +183,8 @@ PROJECTILE_NAMES = {
 
 @dataclass
 class PlantState:
+    """A live placed plant and its board position, health, and state."""
+
     slot: int
     type_id: int
     name: str
@@ -200,6 +206,8 @@ class PlantState:
 
 @dataclass
 class ZombieState:
+    """A live zombie and its row, movement state, health, and effects."""
+
     slot: int
     type_id: int
     name: str
@@ -226,6 +234,8 @@ class ZombieState:
 
 @dataclass
 class SeedPacketState:
+    """A seed-bank packet with cost, cooldown, and current usability."""
+
     slot: int
 
     type_id: int
@@ -250,6 +260,8 @@ class SeedPacketState:
 
 @dataclass
 class PickupState:
+    """An uncollected board pickup such as sun or a coin."""
+
     slot: int
 
     type_id: int
@@ -266,6 +278,8 @@ class PickupState:
 
 @dataclass
 class ProjectileState:
+    """A currently observed projectile in flight."""
+
     slot: int
 
     type_id: int
@@ -281,6 +295,8 @@ class ProjectileState:
 
 @dataclass
 class WaveState:
+    """Wave progress, timers, and health-budget observations."""
+
     total_waves: int
 
     spawned_waves: int
@@ -298,6 +314,8 @@ class WaveState:
 
 @dataclass
 class LawnMowerState:
+    """A row's lawn mower or pool cleaner state."""
+
     slot: int
 
     row: int
@@ -317,6 +335,8 @@ class LawnMowerState:
 
 @dataclass
 class GridItemState:
+    """A live grid object, including graves, craters, and ladders."""
+
     slot: int
 
     type_id: int
@@ -329,6 +349,16 @@ class GridItemState:
 
 @dataclass
 class GameState:
+    """Stable GameState v1 strategic observation interface.
+
+    Top-level v1 fields are ``sun``, ``game_clock``, ``scene``,
+    ``adventure_level``, ``paused``, ``plant_capacity``, ``zombie_capacity``,
+    ``wave``, ``plants``, ``zombies``, ``seeds``, ``mowers``, ``pickups``,
+    ``projectiles``, and ``grid_items``.  Placement legality remains a
+    separate derived layer in :mod:`pvz_reader.placement`; GameState contains
+    no placement masks, action choices, or controller state.
+    """
+
     sun: int
     game_clock: int
     scene: int
@@ -1172,15 +1202,6 @@ class PvZGameStateReader:
         pickups = self.read_pickups(board)
         projectiles = self.read_projectiles(board)
         grid_items = self.read_grid_items(board)
-
-        # TEMPORARY TEST
-        for item in grid_items:
-            print(
-                item.name,
-                item.row,
-                item.col,
-                item.dead
-            )
 
         return GameState(
             sun=self.memory.read_int(
