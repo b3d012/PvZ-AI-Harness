@@ -1,0 +1,47 @@
+name: One-time history purge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.history-purge-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  purge-game-history:
+    if: github.repository == 'b3d012/PvZ-DeepLearning'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install git-filter-repo
+        run: python -m pip install git-filter-repo
+
+      - name: Remove proprietary game directory from history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git filter-repo --force \
+            --path 'Plants Vs Zombies Game of the Year Edition' \
+            --invert-paths
+
+          if git log --all --format='%H' -- 'Plants Vs Zombies Game of the Year Edition' | grep -q .; then
+            echo 'Game directory is still present in rewritten history.' >&2
+            exit 1
+          fi
+
+      - name: Force-push rewritten main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin HEAD:main
