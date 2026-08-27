@@ -5,7 +5,7 @@
 - [x] Portfolio-facing README added.
 - [x] Reproducible Conda/Python dependency files added.
 - [x] Windows offline-test CI added.
-- [ ] Rewrite old Git history to remove the previously committed game directory.
-- [ ] Verify rewritten `main` and Windows CI, then remove the one-time purge trigger/workflow.
+- [x] Old `main` history rewritten to remove the previously committed game directory.
+- [x] Rewritten `main` verified and one-time purge trigger/workflow removed.
 
-Once every item is complete, the repository is ready to begin Phase 3 environment work.
+The repository is ready to begin Phase 3 environment work.
