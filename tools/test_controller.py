@@ -13,8 +13,10 @@ from unittest.mock import patch
 from pvz_controller.controller import (
     PvZController,
     SEED_SELECTION_SETTLE_DELAY,
+    SHOVEL_SELECTION_SETTLE_DELAY,
     TARGET_TILE_MOVE_SETTLE_DELAY,
     plant_was_placed,
+    plant_was_removed,
     pickup_was_collected,
 )
 from pvz_controller.windows_input import (
@@ -82,6 +84,14 @@ def plant_state(
     )
 
 
+def shovel_state(*plants, paused=False, seed_count=6):
+    return SimpleNamespace(
+        paused=paused,
+        plants=list(plants),
+        seeds=[SimpleNamespace(slot=index) for index in range(seed_count)],
+    )
+
+
 class FakeInputBackend:
     def __init__(self, error=None, error_on_click=None):
         self.clicks = []
@@ -100,6 +110,14 @@ class FakeInputBackend:
 
 
 class ControllerPickupTests(unittest.TestCase):
+    def test_invalid_game_state_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        result = PvZController(backend).collect_pickup(None, 3)
+
+        self.assertEqual(result.reason, "invalid_game_state")
+        self.assertFalse(result.attempted)
+        self.assertEqual(backend.clicks, [])
+
     def test_collects_current_pickup_with_exactly_one_click(self):
         backend = FakeInputBackend()
         result = PvZController(backend).collect_pickup(state(pickup()), 3)
@@ -269,6 +287,94 @@ class ControllerPlantTests(unittest.TestCase):
         self.assertTrue(plant_was_placed(expected_seed, 2, 3, after))
         self.assertFalse(plant_was_placed(expected_seed, 2, 3, plant_state()))
         self.assertIsNone(plant_was_placed(expected_seed, 2, 3, None))
+
+
+class ControllerShovelTests(unittest.TestCase):
+    def test_valid_shovel_issues_ui_then_tile_click(self):
+        backend = FakeInputBackend()
+        target = SimpleNamespace(type_id=1, row=2, col=3)
+        with patch(
+            "pvz_controller.controller.time.sleep",
+            side_effect=lambda delay: backend.events.append(("sleep", delay)),
+        ):
+            result = PvZController(backend).shovel(shovel_state(target), 2, 3)
+
+        self.assertEqual(result.reason, "clicks_issued")
+        self.assertTrue(result.attempted)
+        self.assertIsNone(result.success)
+        self.assertEqual(backend.clicks, [(491, 36), (320, 295)])
+        self.assertEqual(
+            backend.move_settle_delays,
+            [0.0, TARGET_TILE_MOVE_SETTLE_DELAY],
+        )
+        self.assertEqual(
+            backend.events,
+            [
+                ("click", 491, 36),
+                ("sleep", SHOVEL_SELECTION_SETTLE_DELAY),
+                ("click", 320, 295),
+            ],
+        )
+
+    def test_empty_tile_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        result = PvZController(backend).shovel(shovel_state(), 2, 3)
+
+        self.assertEqual(result.reason, "no_plant_at_tile")
+        self.assertEqual(backend.clicks, [])
+
+    def test_invalid_tile_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        result = PvZController(backend).shovel(shovel_state(), 6, 3)
+
+        self.assertTrue(result.reason.startswith("invalid_tile:"))
+        self.assertEqual(backend.clicks, [])
+
+    def test_paused_game_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        target = SimpleNamespace(type_id=1, row=2, col=3)
+        result = PvZController(backend).shovel(shovel_state(target, paused=True), 2, 3)
+
+        self.assertEqual(result.reason, "game_paused")
+        self.assertEqual(backend.clicks, [])
+
+    def test_missing_or_minimized_window_fails_safely(self):
+        target = SimpleNamespace(type_id=1, row=2, col=3)
+        for message in (
+            "Plants vs. Zombies window not found",
+            "Plants vs. Zombies window is minimized",
+        ):
+            with self.subTest(message=message):
+                backend = FakeInputBackend(GameWindowUnavailable(message))
+                result = PvZController(backend).shovel(shovel_state(target), 2, 3)
+
+                self.assertTrue(result.reason.startswith("game_window_unavailable:"))
+                self.assertFalse(result.attempted)
+                self.assertEqual(backend.clicks, [])
+
+    def test_coordinate_conversion_failure_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        target = SimpleNamespace(type_id=1, row=2, col=3)
+        with patch("pvz_controller.controller.shovel_to_client", side_effect=ValueError("bad shovel")):
+            result = PvZController(backend).shovel(shovel_state(target), 2, 3)
+
+        self.assertEqual(result.reason, "coordinate_out_of_bounds:bad shovel")
+        self.assertEqual(backend.clicks, [])
+
+    def test_input_failure_returns_safe_result(self):
+        backend = FakeInputBackend(ControllerInputError("mouse rejected"))
+        target = SimpleNamespace(type_id=1, row=2, col=3)
+        result = PvZController(backend).shovel(shovel_state(target), 2, 3)
+
+        self.assertEqual(result.reason, "input_failed:mouse rejected")
+        self.assertFalse(result.attempted)
+        self.assertEqual(backend.clicks, [])
+
+    def test_verification_detects_removed_plant(self):
+        target = SimpleNamespace(type_id=1, row=2, col=3)
+        self.assertTrue(plant_was_removed(target, shovel_state()))
+        self.assertFalse(plant_was_removed(target, shovel_state(target)))
+        self.assertIsNone(plant_was_removed(target, None))
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from pvz_controller.coordinates import (
     pickup_to_client,
     scale_logical_to_client,
     seed_slot_to_client,
+    shovel_to_client,
     tile_to_client,
 )
 
@@ -35,6 +36,17 @@ class ControllerCoordinateTests(unittest.TestCase):
             with self.subTest(slot=slot):
                 with self.assertRaises(ValueError):
                     seed_slot_to_client(slot)
+
+    def test_shovel_center_tracks_seed_bank_width(self):
+        self.assertEqual(shovel_to_client(6), (491, 36))
+        self.assertEqual(shovel_to_client(7), (551, 36))
+        self.assertEqual(shovel_to_client(10), (644, 36))
+
+    def test_invalid_shovel_seed_count_rejected(self):
+        for count in (0, 11):
+            with self.subTest(count=count):
+                with self.assertRaises(ValueError):
+                    shovel_to_client(count)
 
     def test_pickup_position(self):
         self.assertEqual(pickup_to_client(201.4, 310.6), (201, 311))
