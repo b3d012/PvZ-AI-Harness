@@ -1,0 +1,47 @@
+# Proprietary/local Plants vs. Zombies installation
+/Plants Vs Zombies Game of the Year Edition/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Local reverse-engineering output (durable findings belong in docs/source/tests)
+/*_research.txt
+/*_trace.txt
+/*_code_dump.txt
+/1073_offsets.txt
+
+# Runtime/debug output
+*.log
+/logs/
+
+# Future ML experiment output
+/runs/
+/checkpoints/
+/models/
+/datasets/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Local configuration / secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

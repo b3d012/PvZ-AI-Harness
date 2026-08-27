@@ -1,0 +1,148 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{amsmath}
+\definecolor{pvzgreen}{HTML}{447A36}
+\definecolor{pvzdark}{HTML}{263525}
+\definecolor{codegray}{HTML}{F4F5F2}
+\hypersetup{colorlinks=true,linkcolor=pvzgreen,urlcolor=pvzgreen,citecolor=pvzgreen}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{PvZ Deep Learning}
+\rhead{Development Report Through Phase 2}
+\cfoot{\thepage}
+\titleformat{\section}{\Large\bfseries\color{pvzdark}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\large\bfseries\color{pvzgreen}}{\thesubsection}{0.7em}{}
+\lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codegray},frame=single,breaklines=true,columns=fullflexible}
+\setlist[itemize]{topsep=3pt,itemsep=2pt}
+\title{\textbf{Plants vs. Zombies Deep Learning}\\\large Development Report Through Phase 2}
+\author{b3d012}
+\date{27 August 2026}
+\begin{document}
+\maketitle
+\begin{abstract}
+This report documents the engineering work completed before the machine-learning phase of the \emph{Plants vs. Zombies Deep Learning} project. The project interfaces with the original Windows \emph{Plants vs. Zombies: Game of the Year Edition} process: a read-only memory subsystem reconstructs a structured game state, a placement subsystem converts that state into semantic legality information, and a controller performs ordinary Windows mouse input. The work through Phase 2 establishes the sensing and actuation foundation required by a future learning environment. This report records the research path, reverse-engineering methodology, reference tooling, validated memory structures, schema design, controller design, tests, live validations, lessons learned, and the recommended transition into Phase 3.
+\end{abstract}
+\tableofcontents
+\newpage
+\section{Project Goal and Design Philosophy}
+The long-term goal is to build an AI agent that can play \emph{Plants vs. Zombies} strategically using the real game as its environment. The intended research value is not simply to automate clicks, but to create a reproducible perception--decision--action pipeline suitable for reinforcement learning or another sequential decision-making method.
+\begin{itemize}
+\item \textbf{Use the original game.} The project targets the Windows GOTY release rather than a reimplemented clone, preserving the actual game dynamics.
+\item \textbf{Read internal state directly.} Memory reading gives precise HP, cooldown, wave, type, and coordinate information. Computer vision can still be introduced later as an auxiliary experiment.
+\item \textbf{Do not use memory writes for normal agent actions.} Observation is read-only; Controller v1 uses ordinary mouse input.
+\item \textbf{Build in phases.} Reader, legality, and controller capabilities were completed independently before a learning loop is introduced.
+\end{itemize}
+\section{Target Version and Reference Material}
+\subsection{Version target}
+The reader is pinned to \textbf{PvZ GOTY 1.2.0.1073}. Version-specific offsets are centralized in \texttt{pvz\_reader/versions.py}, preventing build-specific assumptions from spreading through the reader.
+\subsection{pvztoolkit as a research reference}
+The repository includes \texttt{lmintlcx/pvztoolkit} as a Git submodule under \texttt{references/pvztoolkit}. It was used as a reverse-engineering reference rather than as the AI project's runtime engine. Its source exposed useful pointer chains, structure sizes, seed-bank behavior, and enumerations that could then be checked against the target executable. Seed-bank research, for example, used the toolkit's \texttt{0x50} slot size and its normal/imitater seed fields as hypotheses before live validation.
+\subsection{Validation methodology}
+Known offsets from other builds were never assumed correct. The practical method became: locate a candidate from source/reference material, inspect the target process, manipulate a single in-game variable when possible, compare snapshots or watch candidate addresses, confirm type/stride/lifetime semantics, encode the result in \texttt{versions.py}, and then expose it through typed state plus focused tests.
+\section{Research and Reverse-Engineering Workflow}
+The investigation combined C++ source inspection, PowerShell searching, small Python memory-inspection programs, address watches, memory traces, and targeted live experiments. When a preferred command-line search utility was unavailable, PowerShell tools such as \texttt{Get-ChildItem} and \texttt{Select-String} were used to trace relevant fields through the reference source.
+
+Temporary artifacts such as zombie, wave, seed-slot, seed-readiness, pickup, and projectile research traces were intentionally kept while discovery was active. Their durable conclusions are now represented by the version table, implementation, tests, and this report, allowing those raw dumps to be removed from the portfolio-facing working tree.
+\subsection{Process and memory access}
+The reader attaches to \texttt{PlantsVsZombies.exe} and uses ordinary Win32 process-memory reads. The target build's root chain begins with the LawnApp pointer at \texttt{0x729670}, then the Board offset \texttt{0x868}. The design remains external to the game and avoids DLL injection.
+\section{Phase 1: Game-State Reader}
+Phase 1 converted the live game process into a coherent machine-readable observation rather than a collection of isolated addresses.
+\subsection{Global board state}
+The reader exposes sun, game clock, scene, adventure level, and pause state. Key Board offsets for 1.2.0.1073 are sun \texttt{0x5578}, game clock \texttt{0x5580}, scene \texttt{0x5564}, adventure level \texttt{0x5568}, and pause state \texttt{0x017C}.
+\subsection{Plants}
+The final plant layout uses a \texttt{0x14C} structure stride and captures grid row/column, plant type, state, current/max HP, imitater status, and dead/squished/asleep flags. This makes plant occupancy and condition explicit to downstream logic.
+\subsection{Zombies}
+The zombie layout uses a \texttt{0x168} stride. The reader captures row, type, status, continuous position, biting state, slow/stun/freeze timers, hypnotized state, body HP, armor HP, maxima, and dead state. This provides tactical information that would be difficult to recover reliably from screenshots alone.
+\subsection{Seed bank and cooldown state}
+Seed research established the seed-bank pointer, slot count, \texttt{0x50} slot stride, seed type, imitater type, cooldown elapsed/total fields, readiness/cooling flags, and use counter. Together with plant costs this supports derived ready/affordable/actionable state.
+\subsection{Wave state}
+Wave timing was live validated instead of inferred from UI graphics. The reader exposes total/current/refreshed wave indices, refresh HP, current-wave HP, normal countdown, initial countdown, and huge-wave countdown fields.
+\subsection{Lawn mowers}
+Mower state includes row, X/Y, internal state, dead/visible status, type, and object ID, allowing the future policy to distinguish lanes that retain an emergency defense from lanes that do not.
+\subsection{Pickups}
+Pickups required a larger reverse-engineering pass involving board traces, structure traces, version traces, and code dumps. The validated target layout uses Board offset \texttt{0xFC}, capacity \texttt{0x100}, stride \texttt{0xD8}, and fields for X/Y coordinates, collection status, timer, and type. This later enabled Controller v1 to click exact observed pickup positions.
+\subsection{Grid items}
+Grid-item observation records type, row, column, and dead state using a validated \texttt{0xEC} stride. These objects feed placement legality because some act as board blockers or special supports.
+\subsection{Projectiles}
+Projectile research established a \texttt{0x94} structure and exposes row, position, type, collision eligibility, and object ID. Projectile observations can be omitted from an initial baseline while remaining available for richer tactical models and ablations.
+\subsection{GameState v1 freeze}
+The Phase 1 result is \texttt{GameState} schema version 1 containing global state, plant/zombie capacities, wave data, plants, zombies, seeds, mowers, pickups, projectiles, and grid items. Placement legality and controller/action state are intentionally not embedded inside GameState; it remains an observation of the game.
+\section{Placement Legality and Action Masks}
+\texttt{pvz\_reader/placement.py} adds a deterministic legality layer before the agent is allowed to click the board. It handles ordinary grass as well as roof Flower Pots, Lily Pads, water plants, Grave Buster, Pumpkin, Coffee Bean, and upgrade plants including Gatling Pea, Twin Sunflower, Gloom-shroom, Cattail, Winter Melon, Gold Magnet, Spikerock, and Cob Cannon.
+
+Checks cover bounds, seed existence/actionability, cooldown, affordability, scene/terrain, graves/craters, tile occupancy, support-plant behavior, and upgrade prerequisites. The layer returns machine-readable reason codes and can build a placement mask indexed by seed slot, row, and column. This is directly reusable as an invalid-action mask in Phase 3.
+\section{Phase 2: Controller v1}
+Controller v1 completes the action half of the loop. Higher layers request semantic actions; the controller translates those requests into safe physical input.
+\subsection{Logical coordinate system}
+PvZ uses an 800 by 600 logical client. \texttt{pvz\_controller/coordinates.py} defines lawn tile, seed packet, shovel, and pickup click points in logical coordinates and scales them to the actual client size. Standard board geometry uses nine columns and up to six rows. Shovel placement accounts for the seed bank widening as more packet slots are unlocked.
+\subsection{Safe Windows input backend}
+\texttt{pvz\_controller/windows\_input.py} enumerates visible windows belonging to \texttt{PlantsVsZombies.exe}, prefers the expected title, rejects minimized/zero-sized clients, obtains client bounds, converts logical client positions into screen positions, focuses the game, moves the cursor, and emits one ordinary left click through \texttt{SendInput}. An injectable Win32 API seam allows this logic to be tested without clicking the real desktop.
+\subsection{Semantic actions}
+\texttt{PvZController} exposes three primary Controller v1 actions: collecting an observed pickup, planting a selected seed at a board tile, and shoveling a board tile. Each action returns an \texttt{ActionResult}. Planting validates game state, seed readiness/affordability, deterministic placement legality, and both click targets before starting the two-click sequence. Observation-based helpers verify whether a pickup disappeared, a plant appeared, or a plant was removed.
+\subsection{Safety properties}
+The frozen controller rejects unusable/paused states, bounds-checks logical and scaled points, validates target-window availability and focus, prevalidates multi-click planting before selecting a packet, makes OS input failures explicit, and supports postcondition verification from the reader.
+\section{Testing and Validation}
+The project separates deterministic tests from explicitly named live tools so normal validation cannot accidentally manipulate a running game.
+\subsection{Offline tests}
+\begin{longtable}{p{0.34\textwidth}p{0.58\textwidth}}
+\toprule Test & Responsibility \\
+\midrule\endhead
+\texttt{test\_game\_state\_schema.py} & Frozen GameState contract. \\
+\texttt{test\_pickups.py} & Pickup decoding/data behavior. \\
+\texttt{test\_projectiles.py} & Projectile decoding/data behavior. \\
+\texttt{test\_placement.py} & Ordinary and special placement legality, reasons, and masks. \\
+\texttt{test\_controller\_schema.py} & Public Controller v1 API contract. \\
+\texttt{test\_controller\_coordinates.py} & Tile/seed/shovel/pickup coordinate transforms, scaling, bounds. \\
+\texttt{test\_controller\_windows\_input.py} & Window targeting, focus, scaling, and failure behavior through the injectable Win32 seam. \\
+\texttt{test\_controller.py} & Semantic action preconditions, click sequences, failures, and post-observation helpers. \\
+\bottomrule
+\end{longtable}
+\subsection{Live validation}
+Live validation tools include \texttt{live\_test\_placement.py}, \texttt{live\_test\_placement\_mask.py}, \texttt{live\_test\_controller\_pickup.py}, \texttt{live\_test\_controller\_plant.py}, and \texttt{live\_test\_controller\_shovel.py}. A useful lesson occurred during planting validation: an apparent failure was caused by testing a level where only the three middle lawn rows were active. Repeating the test on a valid row confirmed the planting path. This reinforced the need to validate both internal state and scene geometry.
+\subsection{Phase freeze}
+Controller v1 was frozen in commit \texttt{7777914} (\texttt{Freeze Controller v1 API}), and Phase 2 was subsequently marked complete by commit \texttt{1889b728} (\texttt{Phase 2 Finished}). The freeze gives future model code a stable observation/action contract.
+\section{Repository Cleanup Rationale}
+Durable assets include \texttt{pvz\_reader}, \texttt{pvz\_controller}, placement logic, deterministic tests, live-validation scripts, reusable inspection tools, and the \texttt{references/pvztoolkit} submodule. Generated \texttt{\_\_pycache\_\_} data, raw root-level traces/code dumps, and the proprietary local game installation do not belong in the portfolio-facing working tree once their findings are documented.
+
+Deleting the game directory from the current tree is not the same as deleting its historical blobs. Because the installation was previously committed, a separate \texttt{git filter-repo} or equivalent history rewrite is recommended before broadly promoting the repository if the objective is to remove redistributed proprietary binaries from all reachable history.
+\section{Status at the End of Phase 2}
+The low-level loop is now:
+\[
+\text{PvZ process}\rightarrow\text{GameState v1}\rightarrow\text{legality/masks}\rightarrow\text{semantic action}\rightarrow\text{Windows input}\rightarrow\text{PvZ process}.
+\]
+The next work should therefore focus on the learning-environment contract rather than more low-level automation.
+\section{Recommended Phase 3: Learning-Environment Bridge}
+\subsection{Objective}
+Phase 3 should first make the real game look like a standard sequential decision environment, preferably through a Gymnasium-style interface, rather than immediately training a large neural network.
+\subsection{Observation encoder}
+GameState contains variable-length entity lists and Python objects. Add a deterministic encoder producing fixed, normalized numeric features: global sun/time/wave data; per-tile plant type/HP/state/support channels; spatial or lane-binned zombie type/position/HP/status; seed type/cost/readiness/cooldown; mower state; and optional projectile/pickup channels. Log the raw state alongside encoded observations so trajectories survive future encoder changes.
+\subsection{Action space and masking}
+Use semantic discrete actions such as \((\text{seed slot},\text{row},\text{column})\), plus no-op/wait and optionally shovel actions. Reuse the existing placement mask to eliminate impossible choices. Pickup collection is primarily mechanical, so an initial agent can use an automatic pickup helper between strategic decisions rather than forcing the policy to learn cursor housekeeping.
+\subsection{Step contract}
+One environment step should: observe, encode, build the action mask, accept an action, execute through Controller v1, advance for a documented interval/event, observe again, verify action outcome, compute reward and terminal flags, and log the transition.
+\subsection{Episode reset}
+The first environment can target one reproducible level and permit a manually prepared start while the step loop is validated. Reliable automated menu/reset navigation can be added later instead of destabilizing Controller v1 now.
+\subsection{Transition logging}
+Persist timestamp, episode ID, raw state, encoded observation, mask, requested action, action result, next state, reward, terminated, and truncated. This produces debuggable trajectories and enables later offline/imitation-learning experiments.
+\subsection{Reward design}
+Keep terminal win/loss dominant. Add only small, auditable shaping terms based on observed transitions (for example wave progress or immediate threat change) and test them for reward hacking.
+\subsection{Definition of done}
+Freeze Phase 3 when encoding and masks are deterministic, invalid actions are masked/rejected, action results reconcile with the next observation, step timing and terminal rules are documented, trajectories round-trip to disk, and a random/scripted baseline can run repeated steps or episodes without corrupting the interface. Only then move to the main learned policy, with PPO plus invalid-action masking a sensible first baseline.
+\section{Recommended Pre-Phase-3 Portfolio Work}
+Before training begins: remove/ignore the local game, generated caches and raw traces; consider purging the game from Git history; add a concise root README with architecture/status/setup/report link and a statement that game files are not included; add reproducible Python environment metadata; add Windows CI for non-live tests; and tag the cleaned Phase 2 milestone (for example \texttt{phase-2-controller-v1}).
+\section{Conclusion}
+Through Phase 2 the project has solved the integration problems that normally disappear behind a simulator: version-specific reverse engineering, precise structured observation, rule-aware invalid-action masking, safe actuation of a real desktop application, and postcondition validation. The resulting portfolio narrative is therefore \textbf{reverse engineering $\rightarrow$ structured state estimation $\rightarrow$ rules/action masking $\rightarrow$ safe control $\rightarrow$ RL environment $\rightarrow$ learned strategy}. Phase 3 can now concentrate on the machine-learning environment and data pipeline without reopening the foundations.
+\end{document}
