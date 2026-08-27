@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — semantic action space complete**
-- Next milestone: **Phase 3.3 — environment step contract**
+- Current milestone: **Phase 3 in progress — environment step contract complete**
+- Next milestone: **Phase 3.4 — transition logging**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -203,26 +203,16 @@ Recommended sequence:
 
 ### Phase 3.3 — Environment step contract
 
-Implement the equivalent of:
-
-```python
-observation, info = env.reset()
-observation, reward, terminated, truncated, info = env.step(action)
-```
-
-A step should conceptually:
-
-```text
-observe
-→ encode
-→ build action mask
-→ execute semantic action
-→ allow game progress
-→ observe again
-→ reconcile action result
-→ calculate reward
-→ log transition
-```
+- ✅ Complete: `pvz_env.environment.PvZEnvironment` coordinates reader
+  snapshots, Observation v1, Action v1 masks, Controller v1 planting, an
+  explicit injected step interval, and a post-interval read.
+- `StepResult` provides typed before/after snapshots, semantic action,
+  controller result, stable rejection reason, reconciliation status, and
+  timing metadata. Rewards, terminal flags, and persistent logging are not
+  part of this contract yet.
+- The environment owns immutable explicit `active_rows` episode configuration
+  and passes it into every Action v1 mask build. Pickup collection remains
+  deferred; no environment-managed clicks occur in Phase 3.3.
 
 ### Phase 3.4 — Transition logging
 
@@ -321,4 +311,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.3, not model training.**
+- **Next implementation work should begin with Phase 3.4, not model training.**
