@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 2 complete**
-- Next milestone: **Phase 3 — RL environment bridge**
+- Current milestone: **Phase 3 in progress — observation encoder complete**
+- Next milestone: **Phase 3.2 — semantic action space**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -18,6 +18,8 @@ Current architecture:
 PvZ GOTY process
     ↓ read-only memory observation
 GameState v1
+    ↓
+deterministic EncodedObservation v1
     ↓
 placement legality / action masking
     ↓
@@ -117,7 +119,7 @@ python -m unittest discover -s tools -p "test_*.py" -v
 Also compile the Python source tree when practical:
 
 ```powershell
-python -m compileall -q pvz_reader pvz_controller tools
+python -m compileall -q pvz_reader pvz_controller pvz_env tools
 ```
 
 For changes affecting live reader/controller behavior, also identify the relevant `tools/live_test_*` validation that should be run manually against the real game.
@@ -178,9 +180,11 @@ Recommended sequence:
 
 ### Phase 3.1 — Observation specification and encoder
 
-- define deterministic fixed-size encoded observations from `GameState v1`;
-- keep raw GameState and encoded observations separate;
-- normalize/encode features explicitly and test determinism.
+- ✅ Complete: `pvz_env.observation` defines deterministic fixed-size
+  `float32` observations from `GameState v1`.
+- Raw `GameState` and encoded observations remain separate.
+- The schema, normalization, deterministic zombie slotting, metadata, and
+  deferred fields are covered by offline tests.
 
 ### Phase 3.2 — Semantic action space
 
@@ -309,4 +313,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.1, not model training.**
+- **Next implementation work should begin with Phase 3.2, not model training.**

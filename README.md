@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 2 complete — GameState v1 + placement/action masking + Controller v1 are frozen. Phase 3 will build the learning-environment bridge.**
+> **Current milestone: Phase 3 in progress — GameState v1, placement/action masking, and Controller v1 are frozen; Phase 3.1 has added a deterministic observation encoder.**
 
 ## Architecture
 
@@ -15,6 +15,11 @@ Plants vs. Zombies GOTY
 │ plants / zombies     │
 │ seeds / waves / sun  │
 │ pickups / mowers ... │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│ EncodedObservation v1│
+│ fixed NumPy float32  │
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
@@ -48,7 +53,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | ⏭️ Next | RL environment bridge: encoder, action space, masks, stepping, logging, rewards |
+| Phase 3 | 🚧 In progress | 3.1 encoder complete; action space, masks, stepping, logging, rewards remain |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -68,11 +73,16 @@ This layer will directly power invalid-action masking in Phase 3.
 
 PvZ renders to an 800×600 logical client. Coordinates are defined in that logical space and scaled to the current Windows client rectangle. The Windows backend verifies the target process/window, rejects minimized or unusable clients, checks coordinate bounds, focuses the game and sends ordinary left-click input.
 
+## Phase 3.1 — Observation encoder
+
+`pvz_env/observation.py` converts frozen `GameState v1` data into a deterministic fixed-size NumPy `float32` vector for future learning code. The v1 schema encodes normalized global/wave state, a six-by-nine spatial plant map, ten seed-bank slots, five closest-to-house zombie slots per lane, and mower state per lane. Pickups, projectiles, and grid items remain available in raw `GameState` but are intentionally deferred from this first encoded representation.
+
 ## Repository layout
 
 ```text
 pvz_reader/        GameState reader, version table, legality rules, diagnostics
 pvz_controller/    Semantic Controller v1 and Windows input backend
+pvz_env/           Environment-facing observation encoding (Phase 3.1)
 tools/             Offline tests, live validation and inspection utilities
 docs/              Technical development report
 references/         pvztoolkit research-reference submodule
@@ -125,7 +135,7 @@ Files beginning with `tools/live_test_` intentionally interact with a running ga
 
 Phase 3 will preserve the frozen Phase 1/2 contracts and add:
 
-1. deterministic fixed-size observation encoding;
+1. ✅ deterministic fixed-size observation encoding;
 2. a semantic discrete action space;
 3. invalid-action masks from existing placement legality;
 4. optional automatic pickup collection between strategic decisions;
