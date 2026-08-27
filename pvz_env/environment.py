@@ -235,6 +235,8 @@ class PvZEnvironment:
         controller_result: ActionResult | None,
     ) -> ReconciliationStatus:
         if action.action_type is ActionType.WAIT:
+            if after is None:
+                return ReconciliationStatus.POSTCONDITION_UNAVAILABLE
             return ReconciliationStatus.WAIT_ADVANCED
         if controller_result is None or not controller_result.attempted or controller_result.success is False:
             return ReconciliationStatus.CONTROLLER_FAILED
