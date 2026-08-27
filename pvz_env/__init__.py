@@ -6,10 +6,38 @@ from pvz_env.observation import (
     ObservationEncoder,
     ObservationSpec,
 )
+from pvz_env.actions import (
+    ACTION_COUNT,
+    ACTION_SCHEMA_VERSION,
+    ACTION_SPEC,
+    DEFERRED_ACTION_TYPES,
+    MAX_SEED_SLOTS,
+    PLANT_INDEX_START,
+    ActionSpec,
+    ActionType,
+    SemanticAction,
+    build_action_mask,
+    decode_action,
+    encode_action,
+    normalize_active_rows,
+)
 
 __all__ = [
     "OBSERVATION_SCHEMA_VERSION",
     "OBSERVATION_SPEC",
     "ObservationEncoder",
     "ObservationSpec",
+    "ACTION_COUNT",
+    "ACTION_SCHEMA_VERSION",
+    "ACTION_SPEC",
+    "DEFERRED_ACTION_TYPES",
+    "MAX_SEED_SLOTS",
+    "PLANT_INDEX_START",
+    "ActionSpec",
+    "ActionType",
+    "SemanticAction",
+    "build_action_mask",
+    "decode_action",
+    "encode_action",
+    "normalize_active_rows",
 ]

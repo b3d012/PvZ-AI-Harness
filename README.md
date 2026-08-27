@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3 in progress — GameState v1, placement/action masking, and Controller v1 are frozen; Phase 3.1 has added a deterministic observation encoder.**
+> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.2 provide deterministic observations and semantic legality-masked actions.**
 
 ## Architecture
 
@@ -23,8 +23,8 @@ Plants vs. Zombies GOTY
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
-│ Placement / legality │
-│ + invalid-action mask│
+│ Semantic Action v1  │
+│ + legality mask     │
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
@@ -53,7 +53,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | 🚧 In progress | 3.1 encoder complete; action space, masks, stepping, logging, rewards remain |
+| Phase 3 | 🚧 In progress | 3.1 encoder and 3.2 action/mask contracts complete; stepping, logging, rewards remain |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -78,6 +78,10 @@ PvZ renders to an 800×600 logical client. Coordinates are defined in that logic
 `pvz_env/observation.py` converts frozen `GameState v1` data into a deterministic fixed-size NumPy `float32` vector for future learning code. The v1 schema encodes normalized global/wave state including Adventure level, a six-by-nine spatial plant map, ten seed-bank slots, five closest-to-house zombie slots per lane plus bounded live/overflow counts, and mower state per lane. Pickups and projectiles remain deferred. Grid items also remain deferred, although graves, craters, and ladders are strategically relevant candidates for a later observation revision; placement legality continues to use raw `GameState.grid_items`.
 
 `GameState v1` does not authoritatively identify temporarily inactive rows in early Adventure levels. Scene only identifies five- versus six-row terrain, so Phase 3.2 action masking must explicitly solve inactive-row masking rather than infer it from an empty row.
+
+## Phase 3.2 — Semantic action space
+
+`pvz_env.actions` defines Action v1: a fixed 541-index space containing `WAIT` at index 0 followed by `PLANT(seed_slot, row, col)` in seed-slot, row, then column order. Its NumPy boolean mask delegates plant legality to `pvz_reader.placement.can_plant`; absent or unavailable seeds, invalid terrain, blockers, and prerequisite failures are masked without changing the action-space size. The caller supplies an explicit six-boolean `active_rows` episode configuration when a level has inactive lawn rows. Shovel and pickup actions are deferred; pickup collection will be environment-managed initially.
 
 ## Repository layout
 
@@ -138,8 +142,8 @@ Files beginning with `tools/live_test_` intentionally interact with a running ga
 Phase 3 will preserve the frozen Phase 1/2 contracts and add:
 
 1. ✅ deterministic fixed-size observation encoding;
-2. a semantic discrete action space;
-3. invalid-action masks from existing placement legality;
+2. ✅ semantic discrete action space;
+3. ✅ invalid-action masks from existing placement legality;
 4. optional automatic pickup collection between strategic decisions;
 5. a `reset()` / `step()` environment contract;
 6. post-action reconciliation from the memory reader;

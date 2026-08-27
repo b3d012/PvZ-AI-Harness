@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — observation encoder complete**
-- Next milestone: **Phase 3.2 — semantic action space**
+- Current milestone: **Phase 3 in progress — semantic action space complete**
+- Next milestone: **Phase 3.3 — environment step contract**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -21,7 +21,7 @@ GameState v1
     ↓
 deterministic EncodedObservation v1
     ↓
-placement legality / action masking
+semantic Action v1 / legality masking
     ↓
 semantic Controller v1
     ↓ normal Windows mouse input
@@ -191,10 +191,15 @@ Recommended sequence:
 
 ### Phase 3.2 — Semantic action space
 
-- define discrete strategic actions such as seed-slot × row × column;
-- include wait/no-op;
-- add shovel only if justified for the initial environment;
-- derive invalid-action masks from placement legality.
+- ✅ Complete: `pvz_env.actions` defines Action v1's fixed 541-index space:
+  `WAIT` plus seed-slot × row × column `PLANT` actions.
+- `build_action_mask` returns a fixed NumPy boolean mask and delegates every
+  placement decision to `pvz_reader.placement.can_plant`.
+- `GameState v1` does not authoritatively expose active lawn rows. The mask
+  therefore accepts an explicit immutable six-boolean episode `active_rows`
+  configuration; Phase 3.3 reset/lifecycle code must supply it for levels
+  with inactive rows. Do not infer it from Adventure progression or empty rows.
+- Shovel and pickup actions are intentionally deferred from Action v1.
 
 ### Phase 3.3 — Environment step contract
 
@@ -316,4 +321,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.2, not model training.**
+- **Next implementation work should begin with Phase 3.3, not model training.**
