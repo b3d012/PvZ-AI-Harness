@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from pvz_controller.coordinates import (
     pickup_to_client,
     seed_slot_to_client,
+    shovel_to_client,
     tile_to_client,
 )
 from pvz_reader.placement import can_plant
@@ -18,18 +19,29 @@ from pvz_controller.windows_input import (
 )
 
 if TYPE_CHECKING:
-    from pvz_reader.game_state import GameState, PickupState, SeedPacketState
+    from pvz_reader.game_state import (
+        GameState,
+        PickupState,
+        PlantState,
+        SeedPacketState,
+    )
 
 
 # PvZ needs a brief moment to enter seed-placement mode after selecting a
 # packet.  The target cursor move also settles before its click is sent.
 SEED_SELECTION_SETTLE_DELAY = 0.10
 TARGET_TILE_MOVE_SETTLE_DELAY = 0.03
+SHOVEL_SELECTION_SETTLE_DELAY = 0.10
 
 
 @dataclass(frozen=True)
 class ActionResult:
-    """Outcome known immediately after a semantic controller request."""
+    """Immediate outcome of a semantic action request.
+
+    ``attempted`` is true once input for the requested action was issued.
+    ``success`` remains ``None`` when a fresh observation is required to
+    confirm the game-side result; ``reason`` is a stable diagnostic code.
+    """
 
     attempted: bool
     success: bool | None
@@ -37,7 +49,13 @@ class ActionResult:
 
 
 class PvZController:
-    """Translate validated semantic actions into normal game input."""
+    """Controller v1 actions backed by safe normal Windows input.
+
+    Public callers use :meth:`collect_pickup`, :meth:`plant`, and
+    :meth:`shovel` with observed game state, seed/pickup slots, and zero-based
+    board coordinates.  Observation belongs to ``pvz_reader`` and placement
+    legality remains in ``pvz_reader.placement``.
+    """
 
     def __init__(self, input_backend=None):
         self._input = (
@@ -48,7 +66,7 @@ class PvZController:
 
     def collect_pickup(
         self,
-        state: "GameState",
+        state: "GameState | None",
         pickup_slot: int,
     ) -> ActionResult:
         """Click one currently collectible pickup resolved from ``state``.
@@ -56,13 +74,22 @@ class PvZController:
         A successful input request reports ``success=None`` because collection
         must be confirmed from a subsequent observation.
         """
-        if state.paused:
+        if state is None:
+            return ActionResult(False, False, "invalid_game_state")
+
+        try:
+            paused = state.paused
+            pickups = state.pickups
+        except AttributeError:
+            return ActionResult(False, False, "invalid_game_state")
+
+        if paused:
             return ActionResult(False, False, "game_paused")
 
         pickup = next(
             (
                 candidate
-                for candidate in state.pickups
+                for candidate in pickups
                 if candidate.slot == pickup_slot
             ),
             None,
@@ -100,7 +127,8 @@ class PvZController:
 
         Placement legality is delegated entirely to :func:`can_plant`.  Both
         click points are validated before the seed packet is selected, so an
-        invalid request cannot leave the game in seed-selection mode.
+        invalid request cannot leave the game in seed-selection mode.  The
+        optional ``stage_callback`` is for synchronous live-test diagnostics.
         """
         if state is None:
             return ActionResult(False, False, "invalid_game_state")
@@ -175,6 +203,64 @@ class PvZController:
             stage_callback("tile_click_issued")
         return ActionResult(True, None, "clicks_issued")
 
+    def shovel(
+        self,
+        state: "GameState | None",
+        row: int,
+        col: int,
+    ) -> ActionResult:
+        """Remove a currently observed plant from a zero-based lawn tile."""
+        if state is None:
+            return ActionResult(False, False, "invalid_game_state")
+
+        try:
+            paused = state.paused
+            plants = state.plants
+            seed_count = len(state.seeds)
+        except (AttributeError, TypeError):
+            return ActionResult(False, False, "invalid_game_state")
+
+        if paused:
+            return ActionResult(False, False, "game_paused")
+
+        try:
+            shovel_point = shovel_to_client(seed_count)
+        except (TypeError, ValueError) as error:
+            return ActionResult(False, False, f"coordinate_out_of_bounds:{error}")
+
+        try:
+            tile_point = tile_to_client(row, col)
+        except (TypeError, ValueError) as error:
+            return ActionResult(False, False, f"invalid_tile:{error}")
+
+        if not any(plant.row == row and plant.col == col for plant in plants):
+            return ActionResult(False, False, "no_plant_at_tile")
+
+        try:
+            self._input.left_click(*shovel_point)
+        except CoordinateOutOfBounds as error:
+            return ActionResult(False, False, f"coordinate_out_of_bounds:{error}")
+        except GameWindowUnavailable as error:
+            return ActionResult(False, False, f"game_window_unavailable:{error}")
+        except ControllerInputError as error:
+            return ActionResult(False, False, f"input_failed:{error}")
+
+        time.sleep(SHOVEL_SELECTION_SETTLE_DELAY)
+
+        try:
+            self._input.left_click(
+                *tile_point,
+                move_settle_delay=TARGET_TILE_MOVE_SETTLE_DELAY,
+            )
+        except CoordinateOutOfBounds as error:
+            return ActionResult(True, False, f"coordinate_out_of_bounds:{error}")
+        except GameWindowUnavailable as error:
+            return ActionResult(True, False, f"game_window_unavailable:{error}")
+        except ControllerInputError as error:
+            return ActionResult(True, False, f"input_failed:{error}")
+
+        return ActionResult(True, None, "clicks_issued")
+
 
 def pickup_was_collected(
     previous: "PickupState",
@@ -209,5 +295,21 @@ def plant_was_placed(
 
     return any(
         plant.type_id == seed.type_id and plant.row == row and plant.col == col
+        for plant in current_state.plants
+    )
+
+
+def plant_was_removed(
+    previous: "PlantState",
+    current_state: "GameState | None",
+) -> bool | None:
+    """Check whether a previously observed plant is gone from its tile."""
+    if current_state is None:
+        return None
+
+    return not any(
+        plant.type_id == previous.type_id
+        and plant.row == previous.row
+        and plant.col == previous.col
         for plant in current_state.plants
     )

@@ -28,6 +28,18 @@ SEED_FIRST_CENTER_X = 105
 SEED_CENTER_Y = 43
 SEED_SLOT_STEP = 50
 
+# The game's shovel button begins at logical x=456 and is 70x72 pixels.  Its
+# seed bank widens for seven or more packets, shifting the whole button right.
+SHOVEL_BUTTON_BASE_X = 456
+SHOVEL_BUTTON_CENTER_OFFSET_X = 35
+SHOVEL_BUTTON_CENTER_Y = 36
+SEED_BANK_EXTRA_WIDTHS = {
+    7: 60,
+    8: 76,
+    9: 112,
+    10: 153,
+}
+
 
 def tile_to_client(row: int, col: int) -> tuple[int, int]:
     """Return the logical client center for a zero-based lawn tile."""
@@ -51,6 +63,19 @@ def seed_slot_to_client(slot: int) -> tuple[int, int]:
     return (
         SEED_FIRST_CENTER_X + slot * SEED_SLOT_STEP,
         SEED_CENTER_Y,
+    )
+
+
+def shovel_to_client(seed_count: int) -> tuple[int, int]:
+    """Return the shovel button center for the current in-level seed bank."""
+    if not 1 <= seed_count <= MAX_SEED_SLOTS:
+        raise ValueError(f"seed count must be in 1..{MAX_SEED_SLOTS}")
+
+    return (
+        SHOVEL_BUTTON_BASE_X
+        + SEED_BANK_EXTRA_WIDTHS.get(seed_count, 0)
+        + SHOVEL_BUTTON_CENTER_OFFSET_X,
+        SHOVEL_BUTTON_CENTER_Y,
     )
 
 
