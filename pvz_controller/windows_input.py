@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -168,11 +169,15 @@ class _Win32Api:
         )
 
     def focus(self, hwnd: int) -> bool:
-        if self.user32.GetForegroundWindow() == hwnd:
+        if self.foreground_window() == hwnd:
             return True
 
         self.user32.SetForegroundWindow(hwnd)
-        return self.user32.GetForegroundWindow() == hwnd
+        return self.foreground_window() == hwnd
+
+    def foreground_window(self) -> int:
+        """Return the HWND currently allowed by Windows to receive input."""
+        return int(self.user32.GetForegroundWindow())
 
     def set_cursor_pos(self, x: int, y: int) -> bool:
         return bool(self.user32.SetCursorPos(x, y))
@@ -228,7 +233,18 @@ class WindowsInputBackend:
 
         return area.screen_x + client_x, area.screen_y + client_y
 
-    def left_click(self, logical_x: int, logical_y: int) -> tuple[int, int]:
+    def is_foreground(self) -> bool:
+        """Whether the safely resolved PvZ gameplay window is foreground."""
+        area = self.get_client_area()
+        return self._api.foreground_window() == area.hwnd
+
+    def left_click(
+        self,
+        logical_x: int,
+        logical_y: int,
+        *,
+        move_settle_delay: float = 0.0,
+    ) -> tuple[int, int]:
         """Focus PvZ and issue exactly one click at a logical client point."""
         area = self.get_client_area()
         screen_x, screen_y = self.logical_to_screen(logical_x, logical_y, area)
@@ -238,6 +254,9 @@ class WindowsInputBackend:
 
         if not self._api.set_cursor_pos(screen_x, screen_y):
             raise InputFailed("Windows rejected the mouse move")
+
+        if move_settle_delay > 0:
+            time.sleep(move_settle_delay)
 
         if not self._api.send_left_click():
             raise InputFailed("Windows rejected the mouse click")

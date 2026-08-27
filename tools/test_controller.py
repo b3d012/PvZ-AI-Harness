@@ -8,8 +8,19 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pvz_controller.controller import PvZController, pickup_was_collected
-from pvz_controller.windows_input import GameWindowUnavailable
+from unittest.mock import patch
+
+from pvz_controller.controller import (
+    PvZController,
+    SEED_SELECTION_SETTLE_DELAY,
+    TARGET_TILE_MOVE_SETTLE_DELAY,
+    plant_was_placed,
+    pickup_was_collected,
+)
+from pvz_controller.windows_input import (
+    ControllerInputError,
+    GameWindowUnavailable,
+)
 
 
 def pickup(
@@ -35,15 +46,57 @@ def state(*pickups, paused=False):
     return SimpleNamespace(paused=paused, pickups=list(pickups))
 
 
+def seed(
+    *,
+    slot=1,
+    type_id=1,
+    name="Sunflower",
+    ready=True,
+    affordable=True,
+    actionable=True,
+):
+    return SimpleNamespace(
+        slot=slot,
+        type_id=type_id,
+        name=name,
+        ready=ready,
+        affordable=affordable,
+        actionable=actionable,
+        imitater_target_id=None,
+    )
+
+
+def plant_state(
+    *seeds,
+    paused=False,
+    scene=0,
+    plants=None,
+    grid_items=None,
+):
+    return SimpleNamespace(
+        paused=paused,
+        seeds=list(seeds),
+        scene=scene,
+        plants=plants or [],
+        grid_items=grid_items or [],
+    )
+
+
 class FakeInputBackend:
-    def __init__(self, error=None):
+    def __init__(self, error=None, error_on_click=None):
         self.clicks = []
         self.error = error
+        self.error_on_click = error_on_click
+        self.move_settle_delays = []
+        self.events = []
 
-    def left_click(self, x, y):
-        if self.error is not None:
-            raise self.error
+    def left_click(self, x, y, *, move_settle_delay=0.0):
+        if self.error is not None or self.error_on_click == len(self.clicks) + 1:
+            error = self.error or ControllerInputError("simulated input failure")
+            raise error
         self.clicks.append((x, y))
+        self.move_settle_delays.append(move_settle_delay)
+        self.events.append(("click", x, y))
 
 
 class ControllerPickupTests(unittest.TestCase):
@@ -109,6 +162,113 @@ class ControllerPickupTests(unittest.TestCase):
         self.assertTrue(pickup_was_collected(before, state()))
         self.assertFalse(pickup_was_collected(before, state(before)))
         self.assertIsNone(pickup_was_collected(before, None))
+
+
+class ControllerPlantTests(unittest.TestCase):
+    def test_valid_plant_issues_seed_then_tile_click(self):
+        backend = FakeInputBackend()
+        with patch(
+            "pvz_controller.controller.time.sleep",
+            side_effect=lambda delay: backend.events.append(("sleep", delay)),
+        ):
+            result = PvZController(backend).plant(plant_state(seed()), 1, 2, 3)
+
+        self.assertEqual(result.reason, "clicks_issued")
+        self.assertTrue(result.attempted)
+        self.assertIsNone(result.success)
+        self.assertEqual(backend.clicks, [(155, 43), (320, 295)])
+        self.assertEqual(backend.move_settle_delays, [0.0, TARGET_TILE_MOVE_SETTLE_DELAY])
+        self.assertEqual(
+            backend.events,
+            [
+                ("click", 155, 43),
+                ("sleep", SEED_SELECTION_SETTLE_DELAY),
+                ("click", 320, 295),
+            ],
+        )
+
+    def test_invalid_seed_slot_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        result = PvZController(backend).plant(plant_state(seed()), 9, 2, 3)
+
+        self.assertEqual(result.reason, "invalid_seed_slot")
+        self.assertEqual(backend.clicks, [])
+
+    def test_invalid_tile_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        result = PvZController(backend).plant(plant_state(seed()), 1, 6, 3)
+
+        self.assertTrue(result.reason.startswith("invalid_tile:"))
+        self.assertEqual(backend.clicks, [])
+
+    def test_illegal_placement_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        occupied = SimpleNamespace(row=2, col=3, type_id=0)
+        result = PvZController(backend).plant(
+            plant_state(seed(), plants=[occupied]),
+            1,
+            2,
+            3,
+        )
+
+        self.assertEqual(result.reason, "placement_invalid:tile_occupied")
+        self.assertEqual(backend.clicks, [])
+
+    def test_paused_game_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        result = PvZController(backend).plant(plant_state(seed(), paused=True), 1, 2, 3)
+
+        self.assertEqual(result.reason, "game_paused")
+        self.assertEqual(backend.clicks, [])
+
+    def test_missing_or_minimized_window_fails_safely(self):
+        for message in (
+            "Plants vs. Zombies window not found",
+            "Plants vs. Zombies window is minimized",
+        ):
+            with self.subTest(message=message):
+                backend = FakeInputBackend(GameWindowUnavailable(message))
+                result = PvZController(backend).plant(plant_state(seed()), 1, 2, 3)
+
+                self.assertTrue(result.reason.startswith("game_window_unavailable:"))
+                self.assertFalse(result.attempted)
+                self.assertEqual(backend.clicks, [])
+
+    def test_coordinate_conversion_failure_issues_zero_clicks(self):
+        backend = FakeInputBackend()
+        with patch("pvz_controller.controller.tile_to_client", side_effect=ValueError("bad tile")):
+            result = PvZController(backend).plant(plant_state(seed()), 1, 2, 3)
+
+        self.assertEqual(result.reason, "invalid_tile:bad tile")
+        self.assertEqual(backend.clicks, [])
+
+    def test_input_failure_returns_safe_result(self):
+        backend = FakeInputBackend(ControllerInputError("mouse rejected"))
+        result = PvZController(backend).plant(plant_state(seed()), 1, 2, 3)
+
+        self.assertEqual(result.reason, "input_failed:mouse rejected")
+        self.assertFalse(result.attempted)
+        self.assertEqual(backend.clicks, [])
+
+    def test_second_click_failure_reports_partial_attempt(self):
+        backend = FakeInputBackend(error_on_click=2)
+        result = PvZController(backend).plant(plant_state(seed()), 1, 2, 3)
+
+        self.assertEqual(result.reason, "input_failed:simulated input failure")
+        self.assertTrue(result.attempted)
+        self.assertFalse(result.success)
+        self.assertEqual(backend.clicks, [(155, 43)])
+
+    def test_plant_verification_detects_expected_plant(self):
+        expected_seed = seed()
+        after = plant_state(
+            expected_seed,
+            plants=[SimpleNamespace(type_id=1, row=2, col=3)],
+        )
+
+        self.assertTrue(plant_was_placed(expected_seed, 2, 3, after))
+        self.assertFalse(plant_was_placed(expected_seed, 2, 3, plant_state()))
+        self.assertIsNone(plant_was_placed(expected_seed, 2, 3, None))
 
 
 if __name__ == "__main__":

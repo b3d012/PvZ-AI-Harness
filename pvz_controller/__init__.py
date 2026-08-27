@@ -3,11 +3,13 @@
 from pvz_controller.controller import (
     ActionResult,
     PvZController,
+    plant_was_placed,
     pickup_was_collected,
 )
 
 __all__ = [
     "ActionResult",
     "PvZController",
+    "plant_was_placed",
     "pickup_was_collected",
 ]

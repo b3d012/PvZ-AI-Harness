@@ -8,12 +8,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pvz_controller import PvZController, pickup_was_collected
+from pvz_controller.windows_input import GameWindowUnavailable, WindowsInputBackend
 from pvz_reader.game_state import PvZGameStateReader
 from pvz_reader.memory import MemoryReader
 
 
 PROCESS_NAME = "PlantsVsZombies.exe"
 VERIFY_SETTLE_SECONDS = 0.15
+FOREGROUND_TIMEOUT_SECONDS = 10.0
+FOREGROUND_POLL_SECONDS = 0.075
 
 
 def _available_pickups(state):
@@ -22,6 +25,16 @@ def _available_pickups(state):
         for pickup in state.pickups
         if pickup.collectible and not pickup.collected
     ]
+
+
+def _wait_for_pvz_foreground(backend: WindowsInputBackend) -> bool:
+    """Poll the real gameplay HWND rather than assuming focus after a delay."""
+    deadline = time.monotonic() + FOREGROUND_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if backend.is_foreground():
+            return True
+        time.sleep(FOREGROUND_POLL_SECONDS)
+    return backend.is_foreground()
 
 
 def main():
@@ -50,13 +63,25 @@ def main():
     if state.paused:
         print("\nThe game is paused. Resume it before confirming this test.")
 
-    input(
-        "\nPress Enter to reread this pickup and issue exactly one click "
-        "(Ctrl+C cancels): "
-    )
+    input("\nPress Enter to begin the manual-focus gate (Ctrl+C cancels): ")
 
-    # Reread immediately before acting. If the selected pickup expired or its
-    # array slot was reused, abort instead of clicking a stale coordinate.
+    backend = WindowsInputBackend()
+    print(
+        "Manually click/focus the Plants vs. Zombies window now. "
+        "Waiting up to 10 seconds for its real window to become foreground..."
+    )
+    try:
+        is_foreground = _wait_for_pvz_foreground(backend)
+    except GameWindowUnavailable as error:
+        print(f"ABORTED: {error}; no click issued.")
+        return
+
+    if not is_foreground:
+        print("ABORTED: PvZ was not foreground within 10 seconds; no click issued.")
+        return
+
+    # Reread only after manual foreground confirmation. If the selected pickup
+    # expired, was collected, or its array slot was reused, do not click.
     fresh_state = reader.read()
     if fresh_state is None:
         print("ABORTED: no active level after confirmation; no click issued.")
@@ -70,11 +95,15 @@ def main():
         ),
         None,
     )
-    if fresh_pickup is None:
+    if (
+        fresh_pickup is None
+        or fresh_pickup.collected
+        or not fresh_pickup.collectible
+    ):
         print("ABORTED: selected pickup became stale; no click issued. Rerun.")
         return
 
-    controller = PvZController()
+    controller = PvZController(backend)
     result = controller.collect_pickup(fresh_state, fresh_pickup.slot)
     print(f"ActionResult: {result}")
 
