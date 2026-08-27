@@ -137,6 +137,16 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertTrue(result.timing.advancement_invoked)
         self.assertFalse(np.array_equal(result.before.observation, result.after.observation))
 
+    def test_wait_with_missing_postcondition_is_not_reported_as_advanced(self):
+        env = self.make_env(state(), None)
+
+        result = env.step(0)
+
+        self.assertEqual(self.controller.calls, [])
+        self.assertEqual(self.sleeps, [0.5])
+        self.assertEqual(result.reconciliation, ReconciliationStatus.POSTCONDITION_UNAVAILABLE)
+        self.assertIsNone(result.after)
+
     def test_legal_plant_calls_controller_and_reconciles_observed_plant(self):
         before, after = state(), state(plants=[plant()])
         env = self.make_env(before, after)
