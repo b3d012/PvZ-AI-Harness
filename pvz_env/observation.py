@@ -4,13 +4,22 @@ Observation schema v1 is a flattened ``float32`` vector composed of global,
 board, seed-bank, zombie, and mower components.  It deliberately defers
 pickups, projectiles, and grid items: they remain in raw ``GameState`` for
 future environment versions, while Phase 3.1 concentrates on strategic board
-state and imminent lane threats.
+state and imminent lane threats.  Graves, craters, and ladders in
+``grid_items`` remain strategically relevant candidates for a later revision;
+placement legality continues to consume the raw field.
 
 Plant types, seed types, imitater targets, and zombie types use fixed one-hot
 channels.  Plant stacks aggregate health/state and preserve every known plant
 type as a presence channel.  Zombie lanes retain the five zombies closest to
-the house, ordered by ``(x, type_id, slot)``; additional zombies are omitted
-deterministically.  Scalar values are clipped to documented finite ranges.
+the house, ordered by ``(x, type_id, slot)``; per-lane counts preserve compact
+information about additional zombies.  Scalar values are clipped to documented
+finite ranges.
+
+``GameState v1`` does not expose authoritative active-row information.  Its
+scene identifies five- versus six-row terrain, but early Adventure levels can
+temporarily disable a subset of rows and an empty row's entity lists cannot
+distinguish that state.  Phase 3.2 must therefore add explicit inactive-row
+masking rather than infer it from this observation.
 """
 
 from dataclasses import dataclass
@@ -36,6 +45,9 @@ STATUS_TIMER_CAP = 600.0
 SUN_CAP = 9990.0
 GAME_CLOCK_CAP = 1_000_000.0
 WAVE_HP_CAP = 100_000.0
+ADVENTURE_LEVEL_CAP = 50.0
+ZOMBIES_PER_LANE_CAP = 50.0
+ZOMBIE_OVERFLOW_CAP = ZOMBIES_PER_LANE_CAP - MAX_ZOMBIES_PER_LANE
 
 
 def _type_channels(prefix: str, maximum: int) -> tuple[str, ...]:
@@ -45,6 +57,7 @@ def _type_channels(prefix: str, maximum: int) -> tuple[str, ...]:
 GLOBAL_FEATURE_NAMES = (
     "sun_log_normalized",
     "game_clock_log_normalized",
+    "adventure_level_normalized",
     *(f"scene_{scene}" for scene in range(KNOWN_SCENES)),
     "paused",
     "spawned_wave_ratio",
@@ -93,6 +106,10 @@ ZOMBIE_CHANNEL_NAMES = (
     "state_normalized",
 )
 MOWER_CHANNEL_NAMES = ("exists", "available", "visible", "state_normalized")
+ZOMBIE_AGGREGATE_FEATURE_NAMES = (
+    "live_count_normalized",
+    "overflow_count_normalized",
+)
 
 
 @dataclass(frozen=True)
@@ -104,11 +121,13 @@ class ObservationSpec:
     board_shape: tuple[int, ...]
     seed_shape: tuple[int, ...]
     zombie_shape: tuple[int, ...]
+    zombie_aggregate_shape: tuple[int, ...]
     mower_shape: tuple[int, ...]
     global_feature_names: tuple[str, ...]
     board_channel_names: tuple[str, ...]
     seed_channel_names: tuple[str, ...]
     zombie_channel_names: tuple[str, ...]
+    zombie_aggregate_feature_names: tuple[str, ...]
     mower_channel_names: tuple[str, ...]
     deferred_fields: tuple[str, ...]
 
@@ -120,6 +139,7 @@ class ObservationSpec:
             ("board", self.board_shape),
             ("seeds", self.seed_shape),
             ("zombies", self.zombie_shape),
+            ("zombie_aggregates", self.zombie_aggregate_shape),
             ("mowers", self.mower_shape),
         )
 
@@ -144,11 +164,13 @@ OBSERVATION_SPEC = ObservationSpec(
     board_shape=(BOARD_ROWS, BOARD_COLS, len(BOARD_CHANNEL_NAMES)),
     seed_shape=(MAX_SEED_SLOTS, len(SEED_CHANNEL_NAMES)),
     zombie_shape=(BOARD_ROWS, MAX_ZOMBIES_PER_LANE, len(ZOMBIE_CHANNEL_NAMES)),
+    zombie_aggregate_shape=(BOARD_ROWS, len(ZOMBIE_AGGREGATE_FEATURE_NAMES)),
     mower_shape=(BOARD_ROWS, len(MOWER_CHANNEL_NAMES)),
     global_feature_names=GLOBAL_FEATURE_NAMES,
     board_channel_names=BOARD_CHANNEL_NAMES,
     seed_channel_names=SEED_CHANNEL_NAMES,
     zombie_channel_names=ZOMBIE_CHANNEL_NAMES,
+    zombie_aggregate_feature_names=ZOMBIE_AGGREGATE_FEATURE_NAMES,
     mower_channel_names=MOWER_CHANNEL_NAMES,
     deferred_fields=("pickups", "projectiles", "grid_items"),
 )
@@ -193,6 +215,7 @@ class ObservationEncoder:
             self._encode_board(state),
             self._encode_seeds(state),
             self._encode_zombies(state),
+            self._encode_zombie_aggregates(state),
             self._encode_mowers(state),
         )
         encoded = np.concatenate([component.reshape(-1) for component in components])
@@ -202,11 +225,12 @@ class ObservationEncoder:
         values = np.zeros(self.spec.global_shape, dtype=np.float32)
         values[0] = _log_bounded(state.sun, SUN_CAP)
         values[1] = _log_bounded(state.game_clock, GAME_CLOCK_CAP)
+        values[2] = _bounded(state.adventure_level, ADVENTURE_LEVEL_CAP)
         if 0 <= state.scene < KNOWN_SCENES:
-            values[2 + state.scene] = 1.0
-        values[2 + KNOWN_SCENES] = float(bool(state.paused))
+            values[3 + state.scene] = 1.0
+        values[3 + KNOWN_SCENES] = float(bool(state.paused))
 
-        wave_offset = 3 + KNOWN_SCENES
+        wave_offset = 4 + KNOWN_SCENES
         total_waves = state.wave.total_waves
         values[wave_offset] = _ratio(state.wave.spawned_waves, total_waves)
         values[wave_offset + 1] = _ratio(state.wave.refreshed_waves, total_waves)
@@ -298,6 +322,21 @@ class ObservationEncoder:
                 slot[scalar_offset + 7] = _bounded(zombie.freeze_timer, STATUS_TIMER_CAP)
                 slot[scalar_offset + 8] = _bounded(zombie.state, PLANT_STATE_CAP)
         return zombies
+
+    def _encode_zombie_aggregates(self, state: "GameState") -> np.ndarray:
+        """Encode bounded live and overflow counts for every lawn lane."""
+        aggregates = np.zeros(self.spec.zombie_aggregate_shape, dtype=np.float32)
+        counts = np.zeros(BOARD_ROWS, dtype=np.int32)
+        for zombie in state.zombies:
+            if 0 <= zombie.row < BOARD_ROWS:
+                counts[zombie.row] += 1
+
+        for row, count in enumerate(counts):
+            aggregates[row, 0] = _bounded(count, ZOMBIES_PER_LANE_CAP)
+            aggregates[row, 1] = _bounded(
+                max(0, count - MAX_ZOMBIES_PER_LANE), ZOMBIE_OVERFLOW_CAP
+            )
+        return aggregates
 
     def _encode_mowers(self, state: "GameState") -> np.ndarray:
         mowers = np.zeros(self.spec.mower_shape, dtype=np.float32)

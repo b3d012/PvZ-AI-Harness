@@ -75,7 +75,9 @@ PvZ renders to an 800×600 logical client. Coordinates are defined in that logic
 
 ## Phase 3.1 — Observation encoder
 
-`pvz_env/observation.py` converts frozen `GameState v1` data into a deterministic fixed-size NumPy `float32` vector for future learning code. The v1 schema encodes normalized global/wave state, a six-by-nine spatial plant map, ten seed-bank slots, five closest-to-house zombie slots per lane, and mower state per lane. Pickups, projectiles, and grid items remain available in raw `GameState` but are intentionally deferred from this first encoded representation.
+`pvz_env/observation.py` converts frozen `GameState v1` data into a deterministic fixed-size NumPy `float32` vector for future learning code. The v1 schema encodes normalized global/wave state including Adventure level, a six-by-nine spatial plant map, ten seed-bank slots, five closest-to-house zombie slots per lane plus bounded live/overflow counts, and mower state per lane. Pickups and projectiles remain deferred. Grid items also remain deferred, although graves, craters, and ladders are strategically relevant candidates for a later observation revision; placement legality continues to use raw `GameState.grid_items`.
+
+`GameState v1` does not authoritatively identify temporarily inactive rows in early Adventure levels. Scene only identifies five- versus six-row terrain, so Phase 3.2 action masking must explicitly solve inactive-row masking rather than infer it from an empty row.
 
 ## Repository layout
 

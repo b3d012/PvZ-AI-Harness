@@ -184,7 +184,10 @@ Recommended sequence:
   `float32` observations from `GameState v1`.
 - Raw `GameState` and encoded observations remain separate.
 - The schema, normalization, deterministic zombie slotting, metadata, and
-  deferred fields are covered by offline tests.
+  deferred fields are covered by offline tests. Adventure level and per-lane
+  zombie live/overflow counts are encoded; inactive-row masking remains a
+  Phase 3.2 requirement because frozen `GameState v1` has no authoritative
+  active-row field.
 
 ### Phase 3.2 — Semantic action space
 

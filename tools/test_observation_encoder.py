@@ -148,9 +148,14 @@ class ObservationEncoderTests(unittest.TestCase):
     def test_schema_metadata_and_flat_shape_are_stable(self):
         self.assertEqual(OBSERVATION_SCHEMA_VERSION, 1)
         self.assertEqual(OBSERVATION_SPEC.version, 1)
-        self.assertEqual(OBSERVATION_SPEC.flat_shape, (5521,))
+        self.assertEqual(OBSERVATION_SPEC.flat_shape, (5534,))
         self.assertEqual(OBSERVATION_SPEC.deferred_fields, ("pickups", "projectiles", "grid_items"))
-        self.assertEqual(OBSERVATION_SPEC.component_slice("global"), slice(0, 15))
+        self.assertEqual(OBSERVATION_SPEC.component_slice("global"), slice(0, 16))
+        self.assertEqual(OBSERVATION_SPEC.zombie_aggregate_shape, (6, 2))
+        self.assertEqual(
+            OBSERVATION_SPEC.zombie_aggregate_feature_names,
+            ("live_count_normalized", "overflow_count_normalized"),
+        )
         with self.assertRaises(KeyError):
             OBSERVATION_SPEC.component_slice("pickups")
 
@@ -201,7 +206,7 @@ class ObservationEncoderTests(unittest.TestCase):
         self.assertEqual(cell[9 + 16], 1.0)
         self.assertEqual(cell[9 + 30], 1.0)
 
-    def test_zombies_are_sorted_by_threat_and_capped_per_lane(self):
+    def test_zombies_are_sorted_by_threat_and_aggregate_overflow(self):
         state = game_state(
             zombies=[
                 zombie(slot=9, type_id=9, x=700),
@@ -213,11 +218,34 @@ class ObservationEncoderTests(unittest.TestCase):
             ]
         )
         zombies = self.components(self.encoder.encode(state), "zombies")
+        aggregates = self.components(self.encoder.encode(state), "zombie_aggregates")
 
         self.assertTrue(np.all(zombies[1, :, 0] == 1.0))
         self.assertEqual(zombies[1, 0, 1 + 8], 1.0)
         self.assertEqual(zombies[1, 4, 1 + 4], 1.0)
         self.assertEqual(zombies[1, 0, 36], 0.875)
+        self.assertAlmostEqual(aggregates[1, 0], 6 / 50, places=6)
+        self.assertAlmostEqual(aggregates[1, 1], 1 / 45, places=6)
+
+    def test_zombie_overflow_distinguishes_matching_nearest_five(self):
+        nearest_five = [
+            zombie(slot=index, type_id=index, x=100 + index * 100)
+            for index in range(5)
+        ]
+        five = self.encoder.encode(game_state(zombies=nearest_five))
+        overflow = self.encoder.encode(
+            game_state(zombies=nearest_five + [zombie(slot=5, type_id=9, x=700)])
+        )
+
+        self.assertTrue(
+            np.array_equal(
+                self.components(five, "zombies"), self.components(overflow, "zombies")
+            )
+        )
+        self.assertFalse(np.array_equal(five, overflow))
+        self.assertGreater(
+            self.components(overflow, "zombie_aggregates")[1, 1], 0.0
+        )
 
     def test_normalized_values_are_bounded(self):
         state = game_state(
@@ -233,7 +261,17 @@ class ObservationEncoderTests(unittest.TestCase):
                 refresh_hp=999999999,
             ),
             plants=[plant(hp=9999, max_hp=1, state=9999)],
-            zombies=[zombie(x=-1000, body_hp=9999, body_max_hp=1, slow_timer=9999)],
+            adventure_level=9999,
+            zombies=[
+                zombie(
+                    slot=index,
+                    x=-1000,
+                    body_hp=9999,
+                    body_max_hp=1,
+                    slow_timer=9999,
+                )
+                for index in range(100)
+            ],
         )
         encoded = self.encoder.encode(state)
 
@@ -268,8 +306,19 @@ class ObservationEncoderTests(unittest.TestCase):
             with self.subTest(scene=scene):
                 state = game_state(scene=scene, plants=[plant(row=2, col=4)])
                 global_values = self.components(self.encoder.encode(state), "global")
-                self.assertEqual(global_values[2 + scene], 1.0)
+                self.assertEqual(global_values[3 + scene], 1.0)
                 self.assertEqual(self.encoder.encode(state).shape, OBSERVATION_SPEC.flat_shape)
+
+    def test_adventure_level_is_encoded_and_does_not_change_shape(self):
+        low = self.encoder.encode(game_state(adventure_level=1))
+        high = self.encoder.encode(game_state(adventure_level=50))
+        low_global = self.components(low, "global")
+        high_global = self.components(high, "global")
+
+        self.assertEqual(low.shape, high.shape)
+        self.assertEqual(low.shape, OBSERVATION_SPEC.flat_shape)
+        self.assertAlmostEqual(low_global[2], 1 / 50, places=6)
+        self.assertEqual(high_global[2], 1.0)
 
 
 if __name__ == "__main__":
