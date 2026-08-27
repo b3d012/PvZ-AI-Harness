@@ -21,6 +21,16 @@ from pvz_env.actions import (
     encode_action,
     normalize_active_rows,
 )
+from pvz_env.environment import (
+    EnvironmentConfig,
+    EnvironmentStateUnavailable,
+    ObservationSnapshot,
+    PvZEnvironment,
+    ReconciliationStatus,
+    StepRejectionReason,
+    StepResult,
+    StepTiming,
+)
 
 __all__ = [
     "OBSERVATION_SCHEMA_VERSION",
@@ -40,4 +50,12 @@ __all__ = [
     "decode_action",
     "encode_action",
     "normalize_active_rows",
+    "EnvironmentConfig",
+    "EnvironmentStateUnavailable",
+    "ObservationSnapshot",
+    "PvZEnvironment",
+    "ReconciliationStatus",
+    "StepRejectionReason",
+    "StepResult",
+    "StepTiming",
 ]

@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.2 provide deterministic observations and semantic legality-masked actions.**
+> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.3 provide deterministic observations, semantic legality-masked actions, and an injected environment step bridge.**
 
 ## Architecture
 
@@ -36,6 +36,10 @@ Plants vs. Zombies GOTY
 Plants vs. Zombies GOTY
 ```
 
+`PvZEnvironment` orchestrates the reader, encoded observation, Action v1 mask,
+Controller v1 semantic action, configured advancement interval, and subsequent
+read/reconciliation; it does not add direct game input or memory writes.
+
 The long-term goal is to train an AI agent to play the real game strategically rather than using a clone or custom simulator. Reading internal state provides exact HP, cooldown, wave, type, status and coordinate information so the learning problem can focus on strategy. Observation is read-only; normal agent actions are performed through ordinary Windows mouse input.
 
 ## Supported build
@@ -53,7 +57,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | 🚧 In progress | 3.1 encoder and 3.2 action/mask contracts complete; stepping, logging, rewards remain |
+| Phase 3 | 🚧 In progress | 3.1–3.3 observation, action/mask, and step contracts complete; logging and rewards remain |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -81,14 +85,18 @@ PvZ renders to an 800×600 logical client. Coordinates are defined in that logic
 
 ## Phase 3.2 — Semantic action space
 
-`pvz_env.actions` defines Action v1: a fixed 541-index space containing `WAIT` at index 0 followed by `PLANT(seed_slot, row, col)` in seed-slot, row, then column order. Its NumPy boolean mask delegates plant legality to `pvz_reader.placement.can_plant`; absent or unavailable seeds, invalid terrain, blockers, and prerequisite failures are masked without changing the action-space size. The caller supplies an explicit six-boolean `active_rows` episode configuration when a level has inactive lawn rows. Shovel and pickup actions are deferred; pickup collection will be environment-managed initially.
+`pvz_env.actions` defines Action v1: a fixed 541-index space containing `WAIT` at index 0 followed by `PLANT(seed_slot, row, col)` in seed-slot, row, then column order. Its NumPy boolean mask delegates plant legality to `pvz_reader.placement.can_plant`; absent or unavailable seeds, invalid terrain, blockers, and prerequisite failures are masked without changing the action-space size. The caller supplies an explicit six-boolean `active_rows` episode configuration when a level has inactive lawn rows. Shovel and pickup actions are deferred; pickup handling is deferred from the environment bridge as well.
+
+## Phase 3.3 — Environment step bridge
+
+`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata. The contract intentionally defers rewards, terminal flags, reset automation, pickup management, and persistent transition logging.
 
 ## Repository layout
 
 ```text
 pvz_reader/        GameState reader, version table, legality rules, diagnostics
 pvz_controller/    Semantic Controller v1 and Windows input backend
-pvz_env/           Environment-facing observation encoding (Phase 3.1)
+pvz_env/           Observation, action, and environment-step contracts (Phases 3.1–3.3)
 tools/             Offline tests, live validation and inspection utilities
 docs/              Technical development report
 references/         pvztoolkit research-reference submodule
@@ -144,9 +152,9 @@ Phase 3 will preserve the frozen Phase 1/2 contracts and add:
 1. ✅ deterministic fixed-size observation encoding;
 2. ✅ semantic discrete action space;
 3. ✅ invalid-action masks from existing placement legality;
-4. optional automatic pickup collection between strategic decisions;
-5. a `reset()` / `step()` environment contract;
-6. post-action reconciliation from the memory reader;
+4. ✅ environment observation / `step()` contract;
+5. optional automatic pickup collection between strategic decisions;
+6. ✅ post-action reconciliation from the memory reader;
 7. transition logging from raw state through reward/next state;
 8. terminal/truncation and reward specifications;
 9. random/scripted baselines before learned policies.
