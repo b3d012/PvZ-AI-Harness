@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.3 provide deterministic observations, semantic legality-masked actions, and an injected environment step bridge.**
+> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.4 provide deterministic observations, semantic legality-masked actions, an environment step bridge, and replayable transition records.**
 
 ## Architecture
 
@@ -57,7 +57,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | 🚧 In progress | 3.1–3.3 observation, action/mask, and step contracts complete; logging and rewards remain |
+| Phase 3 | 🚧 In progress | 3.1–3.4 observation, action/mask, step, and logging contracts complete; rewards remain |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -89,14 +89,18 @@ PvZ renders to an 800×600 logical client. Coordinates are defined in that logic
 
 ## Phase 3.3 — Environment step bridge
 
-`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata. The contract intentionally defers rewards, terminal flags, reset automation, pickup management, and persistent transition logging.
+`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata. Rewards, terminal flags, reset automation, and pickup management remain deferred.
+
+## Phase 3.4 — Transition logging
+
+`pvz_env.logging` records each environment step as a versioned `TransitionRecord`: raw before/after game state, encoded observations, action masks, semantic action, Controller result, reconciliation, and timing. The optional JSONL sink is append-only and preserves array dtype, shape, and values for replay/debugging. Episode IDs are externally supplied; every `step()` consumes one deterministic index, including rejected attempts. Rewards and terminal flags remain intentionally absent.
 
 ## Repository layout
 
 ```text
 pvz_reader/        GameState reader, version table, legality rules, diagnostics
 pvz_controller/    Semantic Controller v1 and Windows input backend
-pvz_env/           Observation, action, and environment-step contracts (Phases 3.1–3.3)
+pvz_env/           Observation, action, step, and transition-logging contracts (Phases 3.1–3.4)
 tools/             Offline tests, live validation and inspection utilities
 docs/              Technical development report
 references/         pvztoolkit research-reference submodule
@@ -153,9 +157,9 @@ Phase 3 will preserve the frozen Phase 1/2 contracts and add:
 2. ✅ semantic discrete action space;
 3. ✅ invalid-action masks from existing placement legality;
 4. ✅ environment observation / `step()` contract;
-5. optional automatic pickup collection between strategic decisions;
-6. ✅ post-action reconciliation from the memory reader;
-7. transition logging from raw state through reward/next state;
+5. ✅ post-action reconciliation from the memory reader;
+6. ✅ transition logging from raw state through next state;
+7. optional automatic pickup collection between strategic decisions;
 8. terminal/truncation and reward specifications;
 9. random/scripted baselines before learned policies.
 

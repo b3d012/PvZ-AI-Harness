@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — environment step contract complete**
-- Next milestone: **Phase 3.4 — transition logging**
+- Current milestone: **Phase 3 in progress — transition logging complete**
+- Next milestone: **Phase 3.5 — reward and terminal rules**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -216,18 +216,17 @@ Recommended sequence:
 
 ### Phase 3.4 — Transition logging
 
-Record enough information to reproduce/debug agent behavior, including:
-
-- episode ID;
-- timestamp/step index;
-- raw GameState;
-- encoded observation;
-- valid-action mask;
-- requested action;
-- `ActionResult`;
-- next state;
-- reward;
-- terminated/truncated flags.
+- ✅ Complete: `pvz_env.logging` defines versioned `TransitionRecord` data,
+  deterministic NumPy payload serialization, and append-only UTF-8 JSONL
+  persistence with round-trip reading.
+- `PvZEnvironment` accepts an optional injected transition sink and emits one
+  record for every `step()` call, including rejected attempts. Episode ID is
+  externally supplied; step indexes begin at zero and increment for every
+  attempted step. Phase 3.6 will own reset/episode rollover.
+- Persistence failures raise `TransitionLoggingError` after the gameplay
+  `StepResult` exists; they are never reclassified as controller failures.
+- Rewards, terminal/truncated flags, and generated trajectories remain
+  deferred. Generated `/logs/` and `/trajectories/` data are ignored.
 
 ### Phase 3.5 — Reward and terminal rules
 
@@ -311,4 +310,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.4, not model training.**
+- **Next implementation work should begin with Phase 3.5, not model training.**

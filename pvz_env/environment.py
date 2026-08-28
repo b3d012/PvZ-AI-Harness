@@ -1,9 +1,9 @@
 """Phase 3.3 environment step orchestration for frozen PvZ interfaces.
 
 This module coordinates observation, Action v1 masking, Controller v1 plant
-execution, an explicit advancement interval, and a fresh observation.  It
-does not assign rewards, manage episode resets, collect pickups, or persist
-transitions.  Those concerns remain deferred to later Phase 3 subphases.
+execution, an explicit advancement interval, and a fresh observation. An
+optional Phase 3.4 transition sink records completed step results. Rewards,
+episode resets, and pickup handling remain deferred to later subphases.
 """
 
 from dataclasses import dataclass
@@ -15,6 +15,7 @@ import numpy as np
 
 from pvz_controller import ActionResult, plant_was_placed
 from pvz_env.actions import SemanticAction, ActionType, build_action_mask, decode_action, normalize_active_rows
+from pvz_env.logging import TransitionLoggingError, TransitionRecord, TransitionSink
 from pvz_env.observation import ObservationEncoder
 
 if TYPE_CHECKING:
@@ -116,7 +117,9 @@ class PvZEnvironment:
     ``WAIT`` and a legal ``PLANT`` each call the supplied sleeper exactly once
     with ``step_interval_seconds`` before the post-step read.  Rejected actions
     never invoke the controller or sleeper.  No desktop interaction occurs
-    unless a real Controller v1 instance is explicitly injected.
+    unless a real Controller v1 instance is explicitly injected. When a
+    transition sink is supplied, every call to :meth:`step` emits exactly one
+    record after a complete result exists, including rejected actions.
     """
 
     def __init__(
@@ -129,6 +132,8 @@ class PvZEnvironment:
         encoder: ObservationEncoder | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        transition_sink: TransitionSink | None = None,
+        episode_id: str = "default",
     ) -> None:
         self.reader = reader
         self.controller = controller
@@ -139,6 +144,11 @@ class PvZEnvironment:
         self.encoder = encoder if encoder is not None else ObservationEncoder()
         self._sleeper = sleeper
         self._clock = clock
+        if not isinstance(episode_id, str) or not episode_id:
+            raise ValueError("episode_id must be a non-empty string")
+        self.episode_id = episode_id
+        self._step_index = 0
+        self._transition_sink = transition_sink
 
     def observe(self) -> ObservationSnapshot:
         """Read once and return the raw state, encoded observation, and mask."""
@@ -153,23 +163,23 @@ class PvZEnvironment:
         try:
             action = decode_action(action_index)
         except ValueError:
-            return self._rejected(
+            return self._finalize(self._rejected(
                 action_index, None, StepRejectionReason.INVALID_ACTION_INDEX, started_at
-            )
+            ))
 
         before = self._read_snapshot()
         if before is None:
-            return self._rejected(
+            return self._finalize(self._rejected(
                 action_index, action, StepRejectionReason.STATE_UNAVAILABLE, started_at
-            )
+            ))
         if before.state.paused:
-            return self._rejected(
+            return self._finalize(self._rejected(
                 action_index, action, StepRejectionReason.GAME_PAUSED, started_at, before
-            )
+            ))
         if not before.action_mask[action_index]:
-            return self._rejected(
+            return self._finalize(self._rejected(
                 action_index, action, StepRejectionReason.ACTION_MASKED, started_at, before
-            )
+            ))
 
         controller_result: ActionResult | None = None
         if action.action_type is ActionType.PLANT:
@@ -184,7 +194,7 @@ class PvZEnvironment:
             self.config.step_interval_seconds, started_at, finished_at, True
         )
         reconciliation = self._reconcile(action, before.state, after, controller_result)
-        return StepResult(
+        return self._finalize(StepResult(
             action_index=action_index,
             action=action,
             action_legal=True,
@@ -194,7 +204,23 @@ class PvZEnvironment:
             after=after,
             reconciliation=reconciliation,
             timing=timing,
-        )
+        ))
+
+    def _finalize(self, result: StepResult) -> StepResult:
+        """Assign one deterministic index and emit, if configured, exactly once."""
+        step_index = self._step_index
+        self._step_index += 1
+        if self._transition_sink is not None:
+            record = TransitionRecord.from_step_result(
+                result, episode_id=self.episode_id, step_index=step_index
+            )
+            try:
+                self._transition_sink.write(record)
+            except Exception as error:
+                raise TransitionLoggingError(
+                    f"failed to persist transition {self.episode_id}/{step_index}: {error}", result
+                ) from error
+        return result
 
     def _read_snapshot(self) -> ObservationSnapshot | None:
         state = self.reader.read()
