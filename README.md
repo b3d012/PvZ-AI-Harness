@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.4 provide deterministic observations, semantic legality-masked actions, an environment step bridge, and replayable transition records.**
+> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.5 provide deterministic observations, semantic legality-masked actions, reward/outcome-aware steps, and replayable transition records.**
 
 ## Architecture
 
@@ -57,7 +57,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | 🚧 In progress | 3.1–3.4 observation, action/mask, step, and logging contracts complete; rewards remain |
+| Phase 3 | 🚧 In progress | 3.1–3.5 observation, action/mask, step, logging, and reward/outcome contracts complete |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -89,18 +89,20 @@ PvZ renders to an 800×600 logical client. Coordinates are defined in that logic
 
 ## Phase 3.3 — Environment step bridge
 
-`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata. Rewards, terminal flags, reset automation, and pickup management remain deferred.
+`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata plus a Reward v1 outcome. Reset automation and pickup management remain deferred.
 
-## Phase 3.4 — Transition logging
+## Phase 3.4–3.5 — Transition logging and reward outcomes
 
-`pvz_env.logging` records each environment step as a versioned `TransitionRecord`: raw before/after game state, encoded observations, action masks, semantic action, Controller result, reconciliation, and timing. The optional JSONL sink is append-only and preserves array dtype, shape, and values for replay/debugging. Episode IDs are externally supplied; every `step()` consumes one deterministic index, including rejected attempts. Rewards and terminal flags remain intentionally absent.
+`pvz_env.logging` records each environment step as a versioned `TransitionRecord`: raw before/after game state, encoded observations, action masks, semantic action, Controller result, reconciliation, timing, and Reward v1 outcome. Schema v2 persists reward, component breakdown, terminal/truncation flags and reason, and reward schema/spec identity.
+
+Reward v1 assigns `+1.0` for a detected win and `-1.0` for a detected loss. A newly spawned wave adds only `+0.01`; rejected actions and technical failures have small diagnostic penalties. WAIT and successful planting receive no activity reward. Because `GameState v1` has no validated win/loss signal, an injected terminal detector is required for natural outcomes and the default detector never guesses. Step horizons and repeated unavailable state are truncations, not losses.
 
 ## Repository layout
 
 ```text
 pvz_reader/        GameState reader, version table, legality rules, diagnostics
 pvz_controller/    Semantic Controller v1 and Windows input backend
-pvz_env/           Observation, action, step, and transition-logging contracts (Phases 3.1–3.4)
+pvz_env/           Observation, action, step, reward/outcome, and transition-logging contracts (Phases 3.1–3.5)
 tools/             Offline tests, live validation and inspection utilities
 docs/              Technical development report
 references/         pvztoolkit research-reference submodule
@@ -159,8 +161,8 @@ Phase 3 will preserve the frozen Phase 1/2 contracts and add:
 4. ✅ environment observation / `step()` contract;
 5. ✅ post-action reconciliation from the memory reader;
 6. ✅ transition logging from raw state through next state;
-7. optional automatic pickup collection between strategic decisions;
-8. terminal/truncation and reward specifications;
+7. ✅ terminal/truncation and versioned Reward v1 specifications;
+8. reset / episode lifecycle from a reproducible prepared level;
 9. random/scripted baselines before learned policies.
 
 Only after that environment is stable will the project introduce the first deep-RL baseline.

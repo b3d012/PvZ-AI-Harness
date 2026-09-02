@@ -41,6 +41,15 @@ from pvz_env.logging import (
     TransitionSink,
     read_transition_jsonl,
 )
+from pvz_env.rewards import (
+    REWARD_SCHEMA_VERSION,
+    NoTerminalDetector,
+    OutcomeReason,
+    RewardModel,
+    RewardOutcome,
+    RewardSpec,
+    TerminalDetector,
+)
 
 __all__ = [
     "OBSERVATION_SCHEMA_VERSION",
@@ -76,4 +85,11 @@ __all__ = [
     "TransitionRecord",
     "TransitionSink",
     "read_transition_jsonl",
+    "REWARD_SCHEMA_VERSION",
+    "NoTerminalDetector",
+    "OutcomeReason",
+    "RewardModel",
+    "RewardOutcome",
+    "RewardSpec",
+    "TerminalDetector",
 ]

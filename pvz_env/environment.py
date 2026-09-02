@@ -2,8 +2,8 @@
 
 This module coordinates observation, Action v1 masking, Controller v1 plant
 execution, an explicit advancement interval, and a fresh observation. An
-optional Phase 3.4 transition sink records completed step results. Rewards,
-episode resets, and pickup handling remain deferred to later subphases.
+optional Phase 3.4 transition sink records completed step results. Phase 3.5
+adds versioned reward/outcome evaluation; reset and pickup handling remain deferred.
 """
 
 from dataclasses import dataclass
@@ -17,6 +17,7 @@ from pvz_controller import ActionResult, plant_was_placed
 from pvz_env.actions import SemanticAction, ActionType, build_action_mask, decode_action, normalize_active_rows
 from pvz_env.logging import TransitionLoggingError, TransitionRecord, TransitionSink
 from pvz_env.observation import ObservationEncoder
+from pvz_env.rewards import RewardModel, RewardOutcome, RewardSpec, TerminalDetector
 
 if TYPE_CHECKING:
     from pvz_reader.game_state import GameState
@@ -66,11 +67,17 @@ class EnvironmentConfig:
 
     active_rows: tuple[bool, ...] = (True, True, True, True, True, True)
     step_interval_seconds: float = 0.25
+    max_steps: int | None = None
+    max_consecutive_state_unavailable: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "active_rows", normalize_active_rows(self.active_rows))
         if self.step_interval_seconds < 0:
             raise ValueError("step_interval_seconds must be non-negative")
+        if self.max_steps is not None and self.max_steps <= 0:
+            raise ValueError("max_steps must be positive when configured")
+        if self.max_consecutive_state_unavailable is not None and self.max_consecutive_state_unavailable <= 0:
+            raise ValueError("max_consecutive_state_unavailable must be positive when configured")
 
 
 @dataclass(frozen=True)
@@ -94,7 +101,7 @@ class StepTiming:
 
 @dataclass(frozen=True)
 class StepResult:
-    """Typed Phase 3.3 result without reward or terminal-state semantics."""
+    """Typed Phase 3.3 result enriched compatibly with optional Reward v1 outcome."""
 
     action_index: int
     action: SemanticAction | None
@@ -105,6 +112,7 @@ class StepResult:
     after: ObservationSnapshot | None
     reconciliation: ReconciliationStatus
     timing: StepTiming
+    outcome: RewardOutcome | None = None
 
 
 class EnvironmentStateUnavailable(RuntimeError):
@@ -134,12 +142,18 @@ class PvZEnvironment:
         clock: Callable[[], float] = time.monotonic,
         transition_sink: TransitionSink | None = None,
         episode_id: str = "default",
+        reward_spec: RewardSpec | None = None,
+        terminal_detector: TerminalDetector | None = None,
+        max_steps: int | None = None,
+        max_consecutive_state_unavailable: int | None = None,
     ) -> None:
         self.reader = reader
         self.controller = controller
         self.config = EnvironmentConfig(
             active_rows=normalize_active_rows(active_rows),
             step_interval_seconds=step_interval_seconds,
+            max_steps=max_steps,
+            max_consecutive_state_unavailable=max_consecutive_state_unavailable,
         )
         self.encoder = encoder if encoder is not None else ObservationEncoder()
         self._sleeper = sleeper
@@ -148,7 +162,9 @@ class PvZEnvironment:
             raise ValueError("episode_id must be a non-empty string")
         self.episode_id = episode_id
         self._step_index = 0
+        self._consecutive_state_unavailable = 0
         self._transition_sink = transition_sink
+        self.reward_model = RewardModel(reward_spec, terminal_detector)
 
     def observe(self) -> ObservationSnapshot:
         """Read once and return the raw state, encoded observation, and mask."""
@@ -210,6 +226,19 @@ class PvZEnvironment:
         """Assign one deterministic index and emit, if configured, exactly once."""
         step_index = self._step_index
         self._step_index += 1
+        unavailable = result.before is None or (result.action_legal and result.after is None)
+        self._consecutive_state_unavailable = self._consecutive_state_unavailable + 1 if unavailable else 0
+        outcome = self.reward_model.evaluate(
+            result, step_index=step_index, max_steps=self.config.max_steps,
+            consecutive_state_unavailable=self._consecutive_state_unavailable,
+            max_consecutive_state_unavailable=self.config.max_consecutive_state_unavailable,
+        )
+        result = StepResult(
+            action_index=result.action_index, action=result.action, action_legal=result.action_legal,
+            rejection_reason=result.rejection_reason, controller_result=result.controller_result,
+            before=result.before, after=result.after, reconciliation=result.reconciliation,
+            timing=result.timing, outcome=outcome,
+        )
         if self._transition_sink is not None:
             record = TransitionRecord.from_step_result(
                 result, episode_id=self.episode_id, step_index=step_index

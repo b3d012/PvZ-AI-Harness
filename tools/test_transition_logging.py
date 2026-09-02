@@ -93,7 +93,7 @@ class TransitionLoggingTests(unittest.TestCase):
         array = np.array([1.0, 2.5], dtype=np.float32)
         payload = ArrayPayload.from_array(array)
 
-        self.assertEqual(TRANSITION_SCHEMA_VERSION, 1)
+        self.assertEqual(TRANSITION_SCHEMA_VERSION, 2)
         self.assertEqual(payload.dtype, "float32")
         self.assertTrue(np.array_equal(payload.to_array(), array))
         self.assertTrue(np.array_equal(ArrayPayload.from_dict(payload.to_dict()).to_array(), array))
@@ -110,6 +110,10 @@ class TransitionLoggingTests(unittest.TestCase):
         self.assertEqual(record.reconciliation, ReconciliationStatus.WAIT_ADVANCED.value)
         self.assertEqual(record.before_state, before.to_dict())
         self.assertEqual(record.after_state, after.to_dict())
+        self.assertEqual(record.reward, result.outcome.reward)
+        self.assertEqual(record.reward_schema_version, 1)
+        self.assertEqual(record.reward_spec_name, "reward-v1-default")
+        self.assertEqual(record.reward_components, result.outcome.components)
         self.assertTrue(np.array_equal(record.before_observation.to_array(), result.before.observation))
         self.assertEqual(record.before_action_mask.dtype, "bool")
 
@@ -190,6 +194,16 @@ class TransitionLoggingTests(unittest.TestCase):
         with self.assertRaises(TransitionLoggingError) as caught:
             env.step(0)
         self.assertEqual(caught.exception.step_result.reconciliation, ReconciliationStatus.WAIT_ADVANCED)
+
+    def test_schema_v1_documents_are_explicitly_unsupported(self):
+        sink = CaptureSink()
+        self.make_env(game_state(), game_state(), sink=sink).step(0)
+        old_document = sink.records[0].to_dict()
+        old_document["schema_version"] = 1
+        for field in ("reward", "terminated", "truncated", "outcome_reason", "reward_components", "reward_schema_version", "reward_spec_name"):
+            del old_document[field]
+        with self.assertRaisesRegex(TransitionLogFormatError, "schema v2"):
+            TransitionRecord.from_dict(old_document)
 
     def test_raw_state_and_record_serialization_do_not_mutate_state(self):
         before, after = game_state(), game_state(plants=[plant()])

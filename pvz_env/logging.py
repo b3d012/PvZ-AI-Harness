@@ -3,13 +3,14 @@
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 import json
+import math
 from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
 
 
-TRANSITION_SCHEMA_VERSION = 1
+TRANSITION_SCHEMA_VERSION = 2
 
 
 class TransitionSink(Protocol):
@@ -125,6 +126,13 @@ class TransitionRecord:
     after_state: dict[str, Any] | None
     after_observation: ArrayPayload | None
     after_action_mask: ArrayPayload | None
+    reward: float
+    terminated: bool
+    truncated: bool
+    outcome_reason: str | None
+    reward_components: dict[str, float]
+    reward_schema_version: int
+    reward_spec_name: str
 
     @classmethod
     def from_step_result(
@@ -134,6 +142,9 @@ class TransitionRecord:
         action_data = None if action is None else _json_value(action)
         fields = _snapshot_fields(step_result.before, "before")
         fields.update(_snapshot_fields(step_result.after, "after"))
+        outcome = step_result.outcome
+        if outcome is None:
+            raise ValueError("Transition schema v2 requires a RewardOutcome")
         return cls(
             schema_version=TRANSITION_SCHEMA_VERSION,
             episode_id=episode_id,
@@ -151,6 +162,13 @@ class TransitionRecord:
             after_state=fields["after_state"],
             after_observation=fields["after_observation"],
             after_action_mask=fields["after_action_mask"],
+            reward=outcome.reward,
+            terminated=outcome.terminated,
+            truncated=outcome.truncated,
+            outcome_reason=_json_value(outcome.reason),
+            reward_components=_json_value(outcome.components),
+            reward_schema_version=outcome.reward_schema_version,
+            reward_spec_name=outcome.reward_spec_name,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -164,9 +182,25 @@ class TransitionRecord:
     def from_dict(cls, value: dict[str, Any]) -> "TransitionRecord":
         required = {field.name for field in cls.__dataclass_fields__.values()}
         if set(value) != required:
-            raise TransitionLogFormatError("transition record fields do not match schema v1")
+            raise TransitionLogFormatError("transition record fields do not match schema v2")
         if value["schema_version"] != TRANSITION_SCHEMA_VERSION:
             raise TransitionLogFormatError(f"unsupported transition schema: {value['schema_version']!r}")
+        if (not isinstance(value["reward"], (int, float)) or isinstance(value["reward"], bool)
+                or not math.isfinite(value["reward"])):
+            raise TransitionLogFormatError("reward must be a finite number")
+        if not isinstance(value["terminated"], bool) or not isinstance(value["truncated"], bool):
+            raise TransitionLogFormatError("terminated and truncated must be booleans")
+        if value["terminated"] and value["truncated"]:
+            raise TransitionLogFormatError("transition cannot be both terminated and truncated")
+        if not isinstance(value["reward_components"], dict) or any(
+                not isinstance(component, str) or not isinstance(amount, (int, float))
+                or isinstance(amount, bool) or not math.isfinite(amount)
+                for component, amount in value["reward_components"].items()):
+            raise TransitionLogFormatError("reward_components must be finite numeric values")
+        if not math.isclose(value["reward"], sum(value["reward_components"].values()), rel_tol=0.0, abs_tol=1e-12):
+            raise TransitionLogFormatError("reward does not equal reward component sum")
+        if not isinstance(value["reward_schema_version"], int) or not isinstance(value["reward_spec_name"], str) or not value["reward_spec_name"]:
+            raise TransitionLogFormatError("invalid reward schema metadata")
         payloads = {}
         for name in ("before_observation", "before_action_mask", "after_observation", "after_action_mask"):
             item = value[name]
@@ -181,6 +215,9 @@ class TransitionRecord:
             controller_result=value["controller_result"], reconciliation=value["reconciliation"],
             timing=value["timing"], after_state=value["after_state"],
             after_observation=payloads["after_observation"], after_action_mask=payloads["after_action_mask"],
+            reward=value["reward"], terminated=value["terminated"], truncated=value["truncated"],
+            outcome_reason=value["outcome_reason"], reward_components=value["reward_components"],
+            reward_schema_version=value["reward_schema_version"], reward_spec_name=value["reward_spec_name"],
         )
 
 
