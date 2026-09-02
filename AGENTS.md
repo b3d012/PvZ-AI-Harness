@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — transition logging complete**
-- Next milestone: **Phase 3.5 — reward and terminal rules**
+- Current milestone: **Phase 3 in progress — reward and terminal rules complete**
+- Next milestone: **Phase 3.6 — reset / episode lifecycle**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -207,9 +207,8 @@ Recommended sequence:
   snapshots, Observation v1, Action v1 masks, Controller v1 planting, an
   explicit injected step interval, and a post-interval read.
 - `StepResult` provides typed before/after snapshots, semantic action,
-  controller result, stable rejection reason, reconciliation status, and
-  timing metadata. Rewards, terminal flags, and persistent logging are not
-  part of this contract yet.
+  controller result, stable rejection reason, reconciliation status, timing,
+  and an optional backwards-compatible Reward v1 outcome.
 - The environment owns immutable explicit `active_rows` episode configuration
   and passes it into every Action v1 mask build. Pickup collection remains
   deferred; no environment-managed clicks occur in Phase 3.3.
@@ -225,14 +224,20 @@ Recommended sequence:
   attempted step. Phase 3.6 will own reset/episode rollover.
 - Persistence failures raise `TransitionLoggingError` after the gameplay
   `StepResult` exists; they are never reclassified as controller failures.
-- Rewards, terminal/truncated flags, and generated trajectories remain
-  deferred. Generated `/logs/` and `/trajectories/` data are ignored.
+- Transition schema v2 persists the Reward v1 outcome fields. Generated
+  `/logs/` and `/trajectories/` data are ignored.
 
 ### Phase 3.5 — Reward and terminal rules
 
-- terminal win/loss should dominate reward design;
-- keep shaping small, explicit and auditable;
-- avoid reward signals that allow obvious reward hacking.
+- ✅ Complete: `pvz_env.rewards` defines `REWARD_SCHEMA_VERSION = 1`, frozen
+  inspectable `RewardSpec`, deterministic `RewardOutcome`, and a pure
+  `RewardModel` evaluator. Terminal +/-1 dominates reward; only spawned-wave
+  delta shaping (+0.01 default) and small technical diagnostic penalties are
+  enabled. WAIT and successful plants have no activity reward.
+- Frozen `GameState v1` has no authoritative natural win/loss signal. The
+  explicit injected `TerminalDetector` seam is therefore required to report a
+  win/loss; the default detector never guesses. `max_steps` and configured
+  repeated unavailable state are truncations, never natural losses.
 
 ### Phase 3.6 — Reset / episode lifecycle
 
@@ -310,4 +315,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.5, not model training.**
+- **Next implementation work should begin with Phase 3.6, not model training.**
