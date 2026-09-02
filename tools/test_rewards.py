@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from pvz_controller import ActionResult
 from pvz_env import (
-    ACTION_COUNT, ActionType, OutcomeReason, PvZEnvironment, RewardModel,
+    ACTION_COUNT, ActionType, EpisodeConfig, OutcomeReason, PvZEnvironment, RewardModel,
     RewardSpec, SemanticAction, encode_action,
 )
 
@@ -46,8 +46,12 @@ class Detector:
 
 class RewardTests(unittest.TestCase):
     def env(self, *states, **kwargs):
-        return PvZEnvironment(Reader(*states), Controller(kwargs.pop("controller_result", ActionResult(True, None, "ok"))),
+        episode_kwargs = {name: kwargs.pop(name) for name in tuple(kwargs) if name in {
+            "reward_spec", "terminal_detector", "max_steps", "max_consecutive_state_unavailable"}}
+        env = PvZEnvironment(Reader(states[0], *states), Controller(kwargs.pop("controller_result", ActionResult(True, None, "ok"))),
             sleeper=lambda _: None, clock=lambda: 1.0, **kwargs)
+        env.reset(EpisodeConfig("reward-test", **episode_kwargs))
+        return env
 
     @staticmethod
     def plant_index(): return encode_action(SemanticAction(ActionType.PLANT, 0, 2, 4))
@@ -79,7 +83,9 @@ class RewardTests(unittest.TestCase):
         masked = self.env(state(seeds=False)).step(self.plant_index()).outcome
         controller = self.env(state(), state(), controller_result=ActionResult(False, False, "failed")).step(self.plant_index()).outcome
         missing = self.env(state(), state()).step(self.plant_index()).outcome
-        unavailable = self.env(None).step(0).outcome
+        unavailable_env = PvZEnvironment(Reader(state(), None), Controller(), sleeper=lambda _: None, clock=lambda: 1.0)
+        unavailable_env.reset(EpisodeConfig("unavailable"))
+        unavailable = unavailable_env.step(0).outcome
         self.assertEqual(rejected.reward, RewardSpec().rejected_action_penalty)
         self.assertEqual(masked.reward, RewardSpec().rejected_action_penalty)
         self.assertEqual(controller.reward, RewardSpec().controller_failure_penalty)
@@ -91,7 +97,9 @@ class RewardTests(unittest.TestCase):
         win = self.env(state(), state(), terminal_detector=Detector(OutcomeReason.WIN), max_steps=1).step(0).outcome
         loss = self.env(state(), state(), terminal_detector=Detector(OutcomeReason.LOSS)).step(0).outcome
         horizon = self.env(state(), state(), max_steps=1).step(0).outcome
-        unavailable = self.env(None, max_consecutive_state_unavailable=1).step(0).outcome
+        unavailable_env = PvZEnvironment(Reader(state(), None), Controller(), sleeper=lambda _: None, clock=lambda: 1.0)
+        unavailable_env.reset(EpisodeConfig("unavailable", max_consecutive_state_unavailable=1))
+        unavailable = unavailable_env.step(0).outcome
         self.assertEqual((win.reward, win.terminated, win.truncated, win.reason), (1.0, True, False, OutcomeReason.WIN))
         self.assertEqual((loss.reward, loss.terminated, loss.truncated, loss.reason), (-1.0, True, False, OutcomeReason.LOSS))
         self.assertEqual((horizon.terminated, horizon.truncated, horizon.reason), (False, True, OutcomeReason.MAX_STEPS))

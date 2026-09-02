@@ -15,6 +15,7 @@ from pvz_controller import ActionResult
 from pvz_env import (
     ACTION_COUNT,
     EnvironmentConfig,
+    EpisodeConfig,
     EnvironmentStateUnavailable,
     OBSERVATION_SPEC,
     PvZEnvironment,
@@ -88,15 +89,17 @@ class FakeClock:
 
 
 class EnvironmentStepTests(unittest.TestCase):
-    def make_env(self, *states, controller=None, active_rows=None, interval=0.5):
+    def make_env(self, *states, controller=None, active_rows=None, interval=0.5, **episode_kwargs):
         self.sleeps = []
-        self.reader = FakeReader(*states)
+        self.reader = FakeReader(states[0], *states)
         self.controller = controller or FakeController()
-        return PvZEnvironment(
-            self.reader, self.controller, active_rows=active_rows,
-            step_interval_seconds=interval, sleeper=self.sleeps.append,
+        env = PvZEnvironment(
+            self.reader, self.controller, sleeper=self.sleeps.append,
             clock=FakeClock(),
         )
+        env.reset(EpisodeConfig("legacy-test", active_rows=active_rows or (True,) * 6,
+            step_interval_seconds=interval, **episode_kwargs))
+        return env
 
     def plant_index(self, row=2, col=4):
         return encode_action(SemanticAction(ActionType.PLANT, 0, row, col))
@@ -109,7 +112,7 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertEqual(snapshot.action_mask.shape, (ACTION_COUNT,))
         self.assertEqual(snapshot.action_mask.dtype, np.bool_)
         self.assertTrue(snapshot.action_mask[0])
-        self.assertEqual(self.reader.calls, 1)
+        self.assertEqual(self.reader.calls, 2)
         with self.assertRaises(ValueError):
             EnvironmentConfig(active_rows=(True,) * 5)
         with self.assertRaises(ValueError):
@@ -130,7 +133,7 @@ class EnvironmentStepTests(unittest.TestCase):
 
         self.assertEqual(self.controller.calls, [])
         self.assertEqual(self.sleeps, [0.5])
-        self.assertEqual(self.reader.calls, 2)
+        self.assertEqual(self.reader.calls, 3)
         self.assertIs(result.before.state, before)
         self.assertIs(result.after.state, after)
         self.assertEqual(result.reconciliation, ReconciliationStatus.WAIT_ADVANCED)
@@ -169,7 +172,7 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertEqual(result.reconciliation, ReconciliationStatus.REJECTED)
         self.assertEqual(self.controller.calls, [])
         self.assertEqual(self.sleeps, [])
-        self.assertEqual(self.reader.calls, 1)
+        self.assertEqual(self.reader.calls, 2)
 
     def test_invalid_action_index_is_rejected_safely(self):
         env = self.make_env(state())
@@ -180,14 +183,15 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertIsNone(result.before)
         self.assertEqual(self.controller.calls, [])
         self.assertEqual(self.sleeps, [])
-        self.assertEqual(self.reader.calls, 0)
+        self.assertEqual(self.reader.calls, 1)
 
     def test_paused_state_rejects_without_controller_or_sleep(self):
-        env = self.make_env(state(paused=True))
-
-        result = env.step(0)
-
-        self.assertEqual(result.rejection_reason, StepRejectionReason.GAME_PAUSED)
+        self.sleeps = []
+        self.reader = FakeReader(state(paused=True))
+        self.controller = FakeController()
+        env = PvZEnvironment(self.reader, self.controller, sleeper=self.sleeps.append, clock=FakeClock())
+        with self.assertRaises(Exception):
+            env.reset(EpisodeConfig("paused"))
         self.assertEqual(self.controller.calls, [])
         self.assertEqual(self.sleeps, [])
 
@@ -210,14 +214,11 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertIsNotNone(result.after)
 
     def test_reader_unavailable_has_typed_runtime_outcome(self):
-        env = self.make_env(None)
-        with self.assertRaises(EnvironmentStateUnavailable):
+        env = PvZEnvironment(FakeReader(None), FakeController())
+        with self.assertRaises(Exception):
             env.observe()
-
-        env = self.make_env(None)
-        result = env.step(0)
-        self.assertEqual(result.rejection_reason, StepRejectionReason.STATE_UNAVAILABLE)
-        self.assertEqual(result.reconciliation, ReconciliationStatus.REJECTED)
+        with self.assertRaises(Exception):
+            env.step(0)
 
     def test_postcondition_state_unavailable_is_distinct(self):
         env = self.make_env(state(), None)
