@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — reset / episode lifecycle complete**
-- Next milestone: **Phase 3.7 — baselines**
+- Current milestone: **Phase 3 in progress — baseline policies and evaluation complete**
+- Next milestone: **Phase 3.8 — Environment v1 freeze**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -254,10 +254,15 @@ Recommended sequence:
 
 ### Phase 3.7 — Baselines
 
-Before deep-RL training, validate the environment with:
-
-- random valid-action baseline;
-- simple scripted/heuristic baseline.
+- ✅ Complete: `pvz_env.baselines` supplies a seeded `RandomValidActionPolicy`,
+  a compact `SimpleHeuristicPolicy`, typed decisions, a reset-aware
+  `run_episode` evaluation harness, `EpisodeResult`, and deterministic
+  multi-episode summaries. Policies emit Action v1 indexes only.
+- The random baseline uses Observation v1 plus the legality mask. The scripted
+  engineering baseline may inspect the current structured snapshot for simple
+  economy/threat rules, but still relies on the Action v1 mask rather than
+  reproducing placement legality; it is not an apples-to-apples neural-policy
+  architecture. No live baseline tool has been added or validated.
 
 ### Phase 3.8 — Environment v1 freeze
 
@@ -324,4 +329,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.7, not model training.**
+- **Next implementation work should begin with Phase 3.8, not model training.**
