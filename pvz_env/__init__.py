@@ -57,6 +57,18 @@ from pvz_env.rewards import (
     RewardSpec,
     TerminalDetector,
 )
+from pvz_env.baselines import (
+    EpisodeResult,
+    EpisodeSummary,
+    HeuristicPolicyConfig,
+    Policy,
+    PolicyDecision,
+    RandomPolicyConfig,
+    RandomValidActionPolicy,
+    SimpleHeuristicPolicy,
+    run_episode,
+    summarize_episodes,
+)
 
 __all__ = [
     "OBSERVATION_SCHEMA_VERSION",
@@ -106,4 +118,14 @@ __all__ = [
     "RewardOutcome",
     "RewardSpec",
     "TerminalDetector",
+    "EpisodeResult",
+    "EpisodeSummary",
+    "HeuristicPolicyConfig",
+    "Policy",
+    "PolicyDecision",
+    "RandomPolicyConfig",
+    "RandomValidActionPolicy",
+    "SimpleHeuristicPolicy",
+    "run_episode",
+    "summarize_episodes",
 ]

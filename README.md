@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.6 provide deterministic observations, episode lifecycle/reset, semantic legality-masked actions, reward/outcome-aware steps, and replayable transition records.**
+> **Current milestone: Phase 3 in progress — GameState v1 and Controller v1 are frozen; Phases 3.1–3.7 provide deterministic observations, lifecycle/reset, legality-masked actions, rewards/outcomes, transition records, and reusable baselines.**
 
 ## Architecture
 
@@ -57,7 +57,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | 🚧 In progress | 3.1–3.6 observation, action/mask, step, reward/outcome, logging, and episode lifecycle contracts complete |
+| Phase 3 | 🚧 In progress | 3.1–3.7 environment contracts plus random/scripted baseline evaluation complete |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -101,12 +101,16 @@ Reward v1 assigns `+1.0` for a detected win and `-1.0` for a detected loss. A ne
 
 `PvZEnvironment` starts `UNINITIALIZED`. The caller manually prepares a running level, then calls `reset(EpisodeConfig(...))`; reset validates an available, unpaused state and returns the initial raw state, encoded observation, and action mask in `ResetResult`. The immutable episode configuration owns identity, active rows, timing/truncation limits, Reward v1 configuration, optional terminal detector, and optional caller-provided metadata. A step is permitted only while `ACTIVE`; terminal/truncated outcomes block further gameplay until another explicit reset. Reset never navigates menus, chooses levels, dismisses dialogs, or creates a transition record.
 
+## Phase 3.7 — Baselines and evaluation
+
+`pvz_env.baselines` provides a reproducibly seeded random valid-action policy, a deliberately small scripted economy/threat policy, typed action-decision reasons, and `run_episode`/`summarize_episodes` helpers. Both use Environment v1 reset, Action v1 masks, `step()`, Reward v1, and episode outcomes. The scripted baseline has transparent access to the structured snapshot for its simple rules; it remains an engineering comparison baseline, not a learned-policy input design. No live baseline runner is included yet.
+
 ## Repository layout
 
 ```text
 pvz_reader/        GameState reader, version table, legality rules, diagnostics
 pvz_controller/    Semantic Controller v1 and Windows input backend
-pvz_env/           Observation, action, step, reward/outcome, logging, and episode-lifecycle contracts (Phases 3.1–3.6)
+pvz_env/           Observation, action, step, reward/outcome, logging, lifecycle, and baseline contracts (Phases 3.1–3.7)
 tools/             Offline tests, live validation and inspection utilities
 docs/              Technical development report
 references/         pvztoolkit research-reference submodule
@@ -167,7 +171,7 @@ Phase 3 will preserve the frozen Phase 1/2 contracts and add:
 6. ✅ transition logging from raw state through next state;
 7. ✅ terminal/truncation and versioned Reward v1 specifications;
 8. ✅ reset / episode lifecycle from a reproducible prepared level;
-9. random/scripted baselines before learned policies.
+9. ✅ random/scripted baselines before learned policies.
 
 Only after that environment is stable will the project introduce the first deep-RL baseline.
 
