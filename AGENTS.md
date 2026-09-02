@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — reward and terminal rules complete**
-- Next milestone: **Phase 3.6 — reset / episode lifecycle**
+- Current milestone: **Phase 3 in progress — reset / episode lifecycle complete**
+- Next milestone: **Phase 3.7 — baselines**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -241,7 +241,16 @@ Recommended sequence:
 
 ### Phase 3.6 — Reset / episode lifecycle
 
-Start with a reproducible manually prepared level if necessary. Do not destabilize Controller v1 by prematurely automating every menu/dialogue transition.
+- ✅ Complete: `EpisodeConfig` owns immutable episode identity, active rows,
+  timing/truncation limits, Reward v1 configuration, optional detector, and
+  caller-provided metadata. `reset()` adopts an available, unpaused,
+  manually prepared game state and returns a typed `ResetResult`.
+- `PvZEnvironment` lifecycle is `UNINITIALIZED`, `ACTIVE`, `TERMINATED`, or
+  `TRUNCATED`. Steps are forbidden before reset and after an outcome; reset
+  clears the step and unavailable-state counters. The transition sink remains
+  caller-owned and records per-episode IDs with indexes restarting at zero.
+- Menu navigation, level selection, dialogue/retry automation, and Adventure
+  progression remain intentionally out of scope.
 
 ### Phase 3.7 — Baselines
 
@@ -315,4 +324,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.6, not model training.**
+- **Next implementation work should begin with Phase 3.7, not model training.**

@@ -19,6 +19,7 @@ from pvz_env import (
     ActionType,
     ArrayPayload,
     JsonlTransitionSink,
+    EpisodeConfig,
     PvZEnvironment,
     ReconciliationStatus,
     SemanticAction,
@@ -80,10 +81,12 @@ class FailingSink:
 
 class TransitionLoggingTests(unittest.TestCase):
     def make_env(self, *states, sink=None, episode_id="episode-a", controller=None):
-        return PvZEnvironment(
-            FakeReader(*states), controller or FakeController(), episode_id=episode_id,
+        env = PvZEnvironment(
+            FakeReader(states[0], *states), controller or FakeController(),
             transition_sink=sink, sleeper=lambda interval: None, clock=lambda: 1.0,
         )
+        env.reset(EpisodeConfig(episode_id))
+        return env
 
     @staticmethod
     def plant_index():
@@ -136,7 +139,10 @@ class TransitionLoggingTests(unittest.TestCase):
         env = self.make_env(game_state(seeds=[]), sink=sink)
         env.step(ACTION_COUNT)
         env.step(self.plant_index())
-        unavailable = self.make_env(None, sink=sink).step(0)
+        unavailable_env = PvZEnvironment(FakeReader(game_state(), None), FakeController(), transition_sink=sink,
+            sleeper=lambda interval: None, clock=lambda: 1.0)
+        unavailable_env.reset(EpisodeConfig("episode-a"))
+        unavailable = unavailable_env.step(0)
 
         invalid, masked, unavailable_record = sink.records
         self.assertEqual(invalid.rejection_reason, StepRejectionReason.INVALID_ACTION_INDEX.value)

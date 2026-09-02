@@ -1,12 +1,13 @@
-"""Phase 3.3 environment step orchestration for frozen PvZ interfaces.
+"""Phase 3.6 environment orchestration and explicit prepared-state episodes.
 
 This module coordinates observation, Action v1 masking, Controller v1 plant
 execution, an explicit advancement interval, and a fresh observation. An
 optional Phase 3.4 transition sink records completed step results. Phase 3.5
-adds versioned reward/outcome evaluation; reset and pickup handling remain deferred.
+adds versioned reward/outcome evaluation. A caller prepares PvZ at a playable
+level, then :meth:`reset` adopts that state; menu and level automation remain deferred.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import time
 from typing import TYPE_CHECKING, Callable, Protocol
@@ -57,7 +58,7 @@ class ReconciliationStatus(str, Enum):
 
 @dataclass(frozen=True)
 class EnvironmentConfig:
-    """Immutable episode configuration owned by the environment runtime.
+    """Immutable execution settings owned by one active episode.
 
     ``active_rows`` is deliberately supplied externally: frozen GameState v1
     cannot authoritatively describe inactive rows in early Adventure levels.
@@ -78,6 +79,47 @@ class EnvironmentConfig:
             raise ValueError("max_steps must be positive when configured")
         if self.max_consecutive_state_unavailable is not None and self.max_consecutive_state_unavailable <= 0:
             raise ValueError("max_consecutive_state_unavailable must be positive when configured")
+
+
+@dataclass(frozen=True)
+class EpisodeMetadata:
+    """Optional caller-provided annotation; it is not inferred or validated from PvZ."""
+
+    label: str | None = None
+    adventure_level: int | None = None
+    scene: int | None = None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class EpisodeConfig:
+    """All deterministic configuration that becomes fixed on successful reset."""
+
+    episode_id: str
+    active_rows: tuple[bool, ...] = (True, True, True, True, True, True)
+    step_interval_seconds: float = 0.25
+    max_steps: int | None = None
+    max_consecutive_state_unavailable: int | None = None
+    reward_spec: RewardSpec = field(default_factory=RewardSpec)
+    terminal_detector: TerminalDetector | None = None
+    metadata: EpisodeMetadata | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.episode_id, str) or not self.episode_id:
+            raise ValueError("episode_id must be a non-empty string")
+        object.__setattr__(self, "active_rows", normalize_active_rows(self.active_rows))
+        EnvironmentConfig(self.active_rows, self.step_interval_seconds, self.max_steps, self.max_consecutive_state_unavailable)
+        if not isinstance(self.reward_spec, RewardSpec):
+            raise TypeError("reward_spec must be a RewardSpec")
+        if self.metadata is not None and not isinstance(self.metadata, EpisodeMetadata):
+            raise TypeError("metadata must be EpisodeMetadata or None")
+
+
+class LifecycleState(str, Enum):
+    UNINITIALIZED = "uninitialized"
+    ACTIVE = "active"
+    TERMINATED = "terminated"
+    TRUNCATED = "truncated"
 
 
 @dataclass(frozen=True)
@@ -115,19 +157,58 @@ class StepResult:
     outcome: RewardOutcome | None = None
 
 
+@dataclass(frozen=True)
+class ResetResult:
+    """Deterministic initial observation adopted from a manually prepared game."""
+
+    episode_id: str
+    initial: ObservationSnapshot
+    active_rows: tuple[bool, ...]
+    step_index: int
+    lifecycle: LifecycleState
+    reward_schema_version: int
+    reward_spec_name: str
+    metadata: EpisodeMetadata | None
+
+    @property
+    def state(self) -> "GameState":
+        return self.initial.state
+
+    @property
+    def observation(self) -> np.ndarray:
+        return self.initial.observation
+
+    @property
+    def action_mask(self) -> np.ndarray:
+        return self.initial.action_mask
+
+
 class EnvironmentStateUnavailable(RuntimeError):
     """Raised by :meth:`PvZEnvironment.observe` when a reader has no state."""
 
 
+class EnvironmentLifecycleError(RuntimeError):
+    """Raised when an operation is invalid for the explicit episode lifecycle."""
+
+
+class ResetStateUnavailable(EnvironmentLifecycleError):
+    """Raised when reset cannot obtain a game state from the read-only reader."""
+
+
+class ResetGamePaused(EnvironmentLifecycleError):
+    """Raised when reset observes a paused game rather than playable gameplay."""
+
+
 class PvZEnvironment:
-    """Library-independent Phase 3.3 runtime bridge with injectable seams.
+    """Library-independent bridge with explicit Phase 3.6 episode lifecycle.
 
     ``WAIT`` and a legal ``PLANT`` each call the supplied sleeper exactly once
     with ``step_interval_seconds`` before the post-step read.  Rejected actions
     never invoke the controller or sleeper.  No desktop interaction occurs
     unless a real Controller v1 instance is explicitly injected. When a
-    transition sink is supplied, every call to :meth:`step` emits exactly one
-    record after a complete result exists, including rejected actions.
+    transition sink is supplied, every active :meth:`step` emits exactly one
+    record after a complete result exists, including rejected actions. The
+    caller must manually prepare the live level before calling :meth:`reset`.
     """
 
     def __init__(
@@ -135,46 +216,69 @@ class PvZEnvironment:
         reader: StateReader,
         controller: PlantController,
         *,
-        active_rows: tuple[bool, ...] | None = None,
-        step_interval_seconds: float = 0.25,
         encoder: ObservationEncoder | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         transition_sink: TransitionSink | None = None,
-        episode_id: str = "default",
-        reward_spec: RewardSpec | None = None,
-        terminal_detector: TerminalDetector | None = None,
-        max_steps: int | None = None,
-        max_consecutive_state_unavailable: int | None = None,
     ) -> None:
         self.reader = reader
         self.controller = controller
-        self.config = EnvironmentConfig(
-            active_rows=normalize_active_rows(active_rows),
-            step_interval_seconds=step_interval_seconds,
-            max_steps=max_steps,
-            max_consecutive_state_unavailable=max_consecutive_state_unavailable,
-        )
+        self.config: EnvironmentConfig | None = None
+        self.episode_config: EpisodeConfig | None = None
         self.encoder = encoder if encoder is not None else ObservationEncoder()
         self._sleeper = sleeper
         self._clock = clock
-        if not isinstance(episode_id, str) or not episode_id:
-            raise ValueError("episode_id must be a non-empty string")
-        self.episode_id = episode_id
+        self.episode_id: str | None = None
         self._step_index = 0
         self._consecutive_state_unavailable = 0
         self._transition_sink = transition_sink
-        self.reward_model = RewardModel(reward_spec, terminal_detector)
+        self.reward_model: RewardModel | None = None
+        self.lifecycle = LifecycleState.UNINITIALIZED
+
+    def reset(self, episode_config: EpisodeConfig) -> ResetResult:
+        """Adopt a manually prepared, unpaused live state as a new episode."""
+        if not isinstance(episode_config, EpisodeConfig):
+            raise TypeError("episode_config must be an EpisodeConfig")
+        config = EnvironmentConfig(
+            episode_config.active_rows, episode_config.step_interval_seconds,
+            episode_config.max_steps, episode_config.max_consecutive_state_unavailable,
+        )
+        initial = self._read_snapshot(config)
+        if initial is None:
+            raise ResetStateUnavailable("reader returned no GameState during reset")
+        if initial.state.paused:
+            raise ResetGamePaused("cannot reset while the game is paused")
+        detector = episode_config.terminal_detector
+        reset_detector = getattr(detector, "reset", None)
+        if reset_detector is not None:
+            reset_detector(episode_config, initial.state)
+        self.config = config
+        self.episode_config = episode_config
+        self.episode_id = episode_config.episode_id
+        self._step_index = 0
+        self._consecutive_state_unavailable = 0
+        self.reward_model = RewardModel(episode_config.reward_spec, detector)
+        self.lifecycle = LifecycleState.ACTIVE
+        return ResetResult(
+            episode_id=self.episode_id, initial=initial, active_rows=config.active_rows,
+            step_index=0, lifecycle=self.lifecycle,
+            reward_schema_version=episode_config.reward_spec.schema_version,
+            reward_spec_name=episode_config.reward_spec.name,
+            metadata=episode_config.metadata,
+        )
 
     def observe(self) -> ObservationSnapshot:
         """Read once and return the raw state, encoded observation, and mask."""
-        snapshot = self._read_snapshot()
+        self._require_active("observe")
+        snapshot = self._read_snapshot(self.config)
         if snapshot is None:
             raise EnvironmentStateUnavailable("reader returned no GameState")
         return snapshot
 
     def step(self, action_index: int) -> StepResult:
         """Execute one legal Action v1 decision and observe the resulting state."""
+        self._require_active("step")
+        assert self.config is not None
         started_at = self._clock()
         try:
             action = decode_action(action_index)
@@ -183,7 +287,7 @@ class PvZEnvironment:
                 action_index, None, StepRejectionReason.INVALID_ACTION_INDEX, started_at
             ))
 
-        before = self._read_snapshot()
+        before = self._read_snapshot(self.config)
         if before is None:
             return self._finalize(self._rejected(
                 action_index, action, StepRejectionReason.STATE_UNAVAILABLE, started_at
@@ -204,7 +308,7 @@ class PvZEnvironment:
             )
 
         self._sleeper(self.config.step_interval_seconds)
-        after = self._read_snapshot()
+        after = self._read_snapshot(self.config)
         finished_at = self._clock()
         timing = StepTiming(
             self.config.step_interval_seconds, started_at, finished_at, True
@@ -224,6 +328,7 @@ class PvZEnvironment:
 
     def _finalize(self, result: StepResult) -> StepResult:
         """Assign one deterministic index and emit, if configured, exactly once."""
+        assert self.config is not None and self.reward_model is not None and self.episode_id is not None
         step_index = self._step_index
         self._step_index += 1
         unavailable = result.before is None or (result.action_legal and result.after is None)
@@ -239,6 +344,10 @@ class PvZEnvironment:
             before=result.before, after=result.after, reconciliation=result.reconciliation,
             timing=result.timing, outcome=outcome,
         )
+        if outcome.terminated:
+            self.lifecycle = LifecycleState.TERMINATED
+        elif outcome.truncated:
+            self.lifecycle = LifecycleState.TRUNCATED
         if self._transition_sink is not None:
             record = TransitionRecord.from_step_result(
                 result, episode_id=self.episode_id, step_index=step_index
@@ -251,15 +360,21 @@ class PvZEnvironment:
                 ) from error
         return result
 
-    def _read_snapshot(self) -> ObservationSnapshot | None:
+    def _read_snapshot(self, config: EnvironmentConfig) -> ObservationSnapshot | None:
         state = self.reader.read()
         if state is None:
             return None
         return ObservationSnapshot(
             state=state,
             observation=self.encoder.encode(state),
-            action_mask=build_action_mask(state, active_rows=self.config.active_rows),
+            action_mask=build_action_mask(state, active_rows=config.active_rows),
         )
+
+    def _require_active(self, operation: str) -> None:
+        if self.lifecycle is LifecycleState.UNINITIALIZED:
+            raise EnvironmentLifecycleError(f"cannot {operation} before reset")
+        if self.lifecycle in (LifecycleState.TERMINATED, LifecycleState.TRUNCATED):
+            raise EnvironmentLifecycleError(f"cannot {operation} after episode is {self.lifecycle.value}; call reset")
 
     def _rejected(
         self,
