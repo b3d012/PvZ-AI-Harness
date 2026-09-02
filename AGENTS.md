@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — baseline policies and evaluation complete**
-- Next milestone: **Phase 3.8 — Environment v1 freeze**
+- Current milestone: **Phase 3.8 — Environment v1 freeze candidate; live validation pending**
+- Next milestone: **Phase 4 — deep reinforcement learning (after Phase 3 sign-off)**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -28,7 +28,7 @@ semantic Controller v1
 PvZ GOTY process
 ```
 
-## Frozen Phase 1 / Phase 2 contracts
+## Frozen public contracts
 
 Treat the following as stable interfaces unless the user explicitly approves a breaking change:
 
@@ -37,15 +37,23 @@ Treat the following as stable interfaces unless the user explicitly approves a b
 - `pvz_reader/placement.py` as the source of deterministic placement legality/action masks
 - `Controller v1` public API
 - logical 800×600 controller coordinate model
+- `Observation v1` schema, shape `(5534,)`, normalization, and ordering
+- `Action v1` schema, 541-index WAIT/PLANT layout, and explicit active-row contract
+- Environment v1 reset/lifecycle/step/reconciliation contracts
+- Reward v1 schema and default `RewardSpec`
+- transition JSONL schema v2
+- baseline policy/evaluation API
 
 Do **not** casually redesign or merge these layers together during later phases.
 
-If a later task appears to require changing a frozen interface:
+If a Phase 4 task appears to require changing a frozen interface:
 
 1. stop before making the breaking change;
 2. explain why the current contract is insufficient;
 3. propose the smallest compatible change;
-4. wait for explicit approval if the change is architectural or breaks existing callers/tests.
+4. bump the applicable schema/version where appropriate and consider compatibility;
+5. update tests and the technical report;
+6. wait for explicit approval if the change is architectural or breaks existing callers/tests.
 
 ## Architectural rules
 
@@ -262,11 +270,12 @@ Recommended sequence:
   engineering baseline may inspect the current structured snapshot for simple
   economy/threat rules, but still relies on the Action v1 mask rather than
   reproducing placement legality; it is not an apples-to-apples neural-policy
-  architecture. No live baseline tool has been added or validated.
+  architecture. The explicit live runner is prepared but has not yet been
+  validated against a real episode.
 
 ### Phase 3.8 — Environment v1 freeze
 
-Freeze Phase 3 only when:
+Freeze candidate prepared; complete Phase 3 only when:
 
 - observation encoding is deterministic;
 - invalid actions are masked/rejected correctly;
@@ -275,6 +284,8 @@ Freeze Phase 3 only when:
 - episodes terminate/truncate predictably;
 - trajectories round-trip to disk;
 - repeated baseline runs do not corrupt the environment interface.
+
+The candidate freezes Environment schema v1 and exposes `environment_contract()` metadata containing observation, action, environment, reward, and transition schema identifiers. `tools/live_run_environment.py` is dry-run by default, requires explicit active rows, and needs `--execute` before normal mouse input. Its manual checklist is in `docs/PHASE_3_VALIDATION.md`. Do not mark Phase 3 complete, merge the freeze PR, or create a milestone tag until the required live validation is recorded.
 
 Only after this should the project move into the main deep-reinforcement-learning training phase.
 

@@ -7,7 +7,7 @@ encoded-observation/mask input intended for future learned policies.
 """
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
@@ -160,7 +160,13 @@ class EpisodeSummary:
     win_rate: float | None
 
 
-def run_episode(environment: PvZEnvironment, policy: Policy, episode_config: EpisodeConfig) -> EpisodeResult:
+def run_episode(
+    environment: PvZEnvironment,
+    policy: Policy,
+    episode_config: EpisodeConfig,
+    *,
+    on_step: Callable[[PolicyDecision, Any], None] | None = None,
+) -> EpisodeResult:
     """Reset exactly once, step until an outcome, and return auditable metrics."""
     reset = environment.reset(episode_config)
     snapshot = reset.initial
@@ -172,6 +178,8 @@ def run_episode(environment: PvZEnvironment, policy: Policy, episode_config: Epi
         if not snapshot.action_mask[decision.action_index]:
             raise ValueError(f"policy {policy.name!r} selected masked action {decision.action_index}")
         result = environment.step(decision.action_index)
+        if on_step is not None:
+            on_step(decision, result)
         steps += 1
         assert result.outcome is not None
         final_outcome = result.outcome

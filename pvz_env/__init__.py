@@ -69,6 +69,11 @@ from pvz_env.baselines import (
     run_episode,
     summarize_episodes,
 )
+from pvz_env.contracts import (
+    ENVIRONMENT_SCHEMA_VERSION,
+    EnvironmentContract,
+    environment_contract,
+)
 
 __all__ = [
     "OBSERVATION_SCHEMA_VERSION",
@@ -128,4 +133,7 @@ __all__ = [
     "SimpleHeuristicPolicy",
     "run_episode",
     "summarize_episodes",
+    "ENVIRONMENT_SCHEMA_VERSION",
+    "EnvironmentContract",
+    "environment_contract",
 ]
