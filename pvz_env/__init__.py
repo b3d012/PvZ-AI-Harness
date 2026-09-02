@@ -31,6 +31,16 @@ from pvz_env.environment import (
     StepResult,
     StepTiming,
 )
+from pvz_env.logging import (
+    TRANSITION_SCHEMA_VERSION,
+    ArrayPayload,
+    JsonlTransitionSink,
+    TransitionLogFormatError,
+    TransitionLoggingError,
+    TransitionRecord,
+    TransitionSink,
+    read_transition_jsonl,
+)
 
 __all__ = [
     "OBSERVATION_SCHEMA_VERSION",
@@ -58,4 +68,12 @@ __all__ = [
     "StepRejectionReason",
     "StepResult",
     "StepTiming",
+    "TRANSITION_SCHEMA_VERSION",
+    "ArrayPayload",
+    "JsonlTransitionSink",
+    "TransitionLogFormatError",
+    "TransitionLoggingError",
+    "TransitionRecord",
+    "TransitionSink",
+    "read_transition_jsonl",
 ]

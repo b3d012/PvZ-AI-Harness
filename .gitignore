@@ -23,6 +23,7 @@ env/
 # Runtime/debug output
 *.log
 /logs/
+/trajectories/
 
 # Future ML experiment output
 /runs/
