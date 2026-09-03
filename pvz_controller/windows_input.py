@@ -16,9 +16,15 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_SCANCODE = 0x0008
+MAPVK_VK_TO_VSC = 0
+PM_NOREMOVE = 0
+SW_RESTORE = 9
 VK_ESCAPE = 0x1B
 INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
+FOCUS_TIMEOUT_SECONDS = 0.25
+FOCUS_POLL_INTERVAL_SECONDS = 0.01
 
 
 class ControllerInputError(RuntimeError):
@@ -202,16 +208,67 @@ class _Win32Api:
             height=rect.bottom - rect.top,
         )
 
-    def focus(self, hwnd: int) -> bool:
+    def focus(
+        self,
+        hwnd: int,
+        *,
+        timeout_seconds: float = FOCUS_TIMEOUT_SECONDS,
+        poll_interval_seconds: float = FOCUS_POLL_INTERVAL_SECONDS,
+    ) -> bool:
+        """Request foreground activation and verify the exact target HWND.
+
+        Windows restricts foreground activation.  Joining the caller to the
+        relevant GUI input queues gives the documented activation calls the
+        best legitimate opportunity to succeed; every temporary attachment is
+        removed in ``finally`` and success still depends on foreground
+        verification.
+        """
         if self.foreground_window() == hwnd:
             return True
 
-        self.user32.SetForegroundWindow(hwnd)
-        return self.foreground_window() == hwnd
+        if self.user32.IsIconic(hwnd):
+            self.user32.ShowWindow(hwnd, SW_RESTORE)
+
+        # Worker threads do not necessarily own a Win32 message queue. A
+        # non-removing peek creates one before AttachThreadInput is attempted.
+        message = wintypes.MSG()
+        self.user32.PeekMessageW(ctypes.byref(message), 0, 0, 0, PM_NOREMOVE)
+        current_thread = int(self.kernel32.GetCurrentThreadId())
+        foreground = self.foreground_window()
+        thread_ids = {
+            self.window_thread_id(hwnd),
+            self.window_thread_id(foreground) if foreground else 0,
+        }
+        attached_threads: list[int] = []
+        try:
+            for thread_id in sorted(thread_ids):
+                if thread_id and thread_id != current_thread:
+                    if self.user32.AttachThreadInput(current_thread, thread_id, True):
+                        attached_threads.append(thread_id)
+
+            self.user32.BringWindowToTop(hwnd)
+            self.user32.SetForegroundWindow(hwnd)
+            self.user32.SetActiveWindow(hwnd)
+            self.user32.SetFocus(hwnd)
+        finally:
+            for thread_id in reversed(attached_threads):
+                self.user32.AttachThreadInput(current_thread, thread_id, False)
+
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        while True:
+            if self.foreground_window() == hwnd:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
 
     def foreground_window(self) -> int:
         """Return the HWND currently allowed by Windows to receive input."""
         return int(self.user32.GetForegroundWindow())
+
+    def window_thread_id(self, hwnd: int) -> int:
+        """Return the GUI thread owning ``hwnd`` without changing process state."""
+        return int(self.user32.GetWindowThreadProcessId(hwnd, None))
 
     def set_cursor_pos(self, x: int, y: int) -> bool:
         return bool(self.user32.SetCursorPos(x, y))
@@ -235,6 +292,31 @@ class _Win32Api:
             _Input(
                 type=INPUT_KEYBOARD,
                 keyboard=_KeyboardInput(virtual_key=virtual_key, flags=KEYEVENTF_KEYUP),
+            ),
+        )
+        return self.user32.SendInput(2, inputs, ctypes.sizeof(_Input)) == 2
+
+    def send_scan_code_key_press(self, virtual_key: int) -> bool:
+        """Send one key down/up pair using a Win32-derived hardware scan code."""
+        scan_code = int(self.user32.MapVirtualKeyW(virtual_key, MAPVK_VK_TO_VSC))
+        if not scan_code:
+            return False
+        inputs = (_Input * 2)(
+            _Input(
+                type=INPUT_KEYBOARD,
+                keyboard=_KeyboardInput(
+                    virtual_key=0,
+                    scan_code=scan_code,
+                    flags=KEYEVENTF_SCANCODE,
+                ),
+            ),
+            _Input(
+                type=INPUT_KEYBOARD,
+                keyboard=_KeyboardInput(
+                    virtual_key=0,
+                    scan_code=scan_code,
+                    flags=KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                ),
             ),
         )
         return self.user32.SendInput(2, inputs, ctypes.sizeof(_Input)) == 2
@@ -303,6 +385,10 @@ class WindowsInputBackend:
         area = self.get_client_area()
         return bool(self._api.focus(area.hwnd) and self._api.foreground_window() == area.hwnd)
 
+    def foreground_window(self) -> int:
+        """Return the current foreground HWND for operator diagnostics."""
+        return self._api.foreground_window()
+
     def logical_to_screen(self, x: int, y: int, area: ClientArea) -> tuple[int, int]:
         try:
             client_x, client_y = scale_logical_to_client(
@@ -362,5 +448,5 @@ class WindowsInputBackend:
                 raise InputFailed("could not focus the Plants vs. Zombies window")
         if self._api.foreground_window() != area.hwnd:
             raise InputFailed("Plants vs. Zombies focus verification failed")
-        if not self._api.send_key_press(VK_ESCAPE):
+        if not self._api.send_scan_code_key_press(VK_ESCAPE):
             raise InputFailed("Windows rejected the Escape key press")

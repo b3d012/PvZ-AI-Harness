@@ -12,9 +12,13 @@ from pvz_controller.windows_input import (
     ClientArea,
     CoordinateOutOfBounds,
     GameWindowUnavailable,
+    InputFailed,
     MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP,
+    KEYEVENTF_SCANCODE,
     KEYEVENTF_KEYUP,
+    MAPVK_VK_TO_VSC,
+    SW_RESTORE,
     VK_ESCAPE,
     WindowsInputBackend,
     _Win32Api,
@@ -69,6 +73,10 @@ class FakeWindowsApi:
 
     def send_key_press(self, key):
         self.events.append(("key", key))
+        return True
+
+    def send_scan_code_key_press(self, key):
+        self.events.append(("scan_key", key))
         return True
 
 
@@ -146,7 +154,14 @@ class WindowsInputBackendTests(unittest.TestCase):
         api = FakeWindowsApi()
         backend = WindowsInputBackend(api=api, expected_process_id=42)
         backend.press_escape()
-        self.assertEqual(api.events, [("key", 27)])
+        self.assertEqual(api.events, [("scan_key", 27)])
+
+    def test_escape_is_not_sent_when_focus_call_does_not_change_foreground(self):
+        api = FakeWindowsApi(foreground=999, focus=True)
+        backend = WindowsInputBackend(api=api, expected_process_id=42)
+        with self.assertRaisesRegex(InputFailed, "verification failed"):
+            backend.press_escape()
+        self.assertEqual(api.events, [])
 
 
 class Win32FocusTests(unittest.TestCase):
@@ -167,25 +182,91 @@ class Win32FocusTests(unittest.TestCase):
         self.assertTrue(api.focus(100))
         self.assertEqual(calls, [])
 
-    def test_focus_rechecks_foreground_after_safe_attempt(self):
+    def test_focus_restores_joins_input_threads_and_verifies_foreground(self):
         calls = []
 
         class User32:
             foreground = 999
 
+            def PeekMessageW(self, *_args):
+                calls.append(("peek",))
+                return False
+
+            def IsIconic(self, hwnd):
+                return True
+
+            def ShowWindow(self, hwnd, command):
+                calls.append(("show", hwnd, command))
+                return True
+
             def GetForegroundWindow(self):
                 return self.foreground
 
+            def GetWindowThreadProcessId(self, hwnd, _process_id):
+                return {100: 20, 999: 30}[hwnd]
+
+            def AttachThreadInput(self, caller, target, attach):
+                calls.append(("attach", caller, target, bool(attach)))
+                return True
+
+            def BringWindowToTop(self, hwnd):
+                calls.append(("top", hwnd))
+                return True
+
             def SetForegroundWindow(self, hwnd):
-                calls.append(hwnd)
+                calls.append(("foreground", hwnd))
                 self.foreground = hwnd
                 return True
 
+            def SetActiveWindow(self, hwnd):
+                calls.append(("active", hwnd))
+                return hwnd
+
+            def SetFocus(self, hwnd):
+                calls.append(("focus", hwnd))
+                return hwnd
+
+        class Kernel32:
+            def GetCurrentThreadId(self):
+                return 10
+
         api = _Win32Api.__new__(_Win32Api)
         api.user32 = User32()
+        api.kernel32 = Kernel32()
 
         self.assertTrue(api.focus(100))
-        self.assertEqual(calls, [100])
+        self.assertIn(("show", 100, SW_RESTORE), calls)
+        self.assertIn(("peek",), calls)
+        self.assertIn(("foreground", 100), calls)
+        self.assertEqual(
+            [call for call in calls if call[0] == "attach"],
+            [
+                ("attach", 10, 20, True),
+                ("attach", 10, 30, True),
+                ("attach", 10, 30, False),
+                ("attach", 10, 20, False),
+            ],
+        )
+
+    def test_focus_failure_remains_fail_closed_after_activation_attempt(self):
+        class User32:
+            def GetForegroundWindow(self): return 999
+            def IsIconic(self, _hwnd): return False
+            def PeekMessageW(self, *_args): return False
+            def GetWindowThreadProcessId(self, hwnd, _pid): return hwnd
+            def AttachThreadInput(self, *_args): return False
+            def BringWindowToTop(self, _hwnd): return True
+            def SetForegroundWindow(self, _hwnd): return False
+            def SetActiveWindow(self, _hwnd): return 0
+            def SetFocus(self, _hwnd): return 0
+
+        class Kernel32:
+            def GetCurrentThreadId(self): return 10
+
+        api = _Win32Api.__new__(_Win32Api)
+        api.user32 = User32()
+        api.kernel32 = Kernel32()
+        self.assertFalse(api.focus(100, timeout_seconds=0))
 
 
 class Win32MouseInputTests(unittest.TestCase):
@@ -232,6 +313,42 @@ class Win32MouseInputTests(unittest.TestCase):
         self.assertTrue(api.send_key_press(VK_ESCAPE))
         self.assertEqual(captured[0][0], 2)
         self.assertEqual(captured[0][1], [(VK_ESCAPE, 0), (VK_ESCAPE, KEYEVENTF_KEYUP)])
+
+    def test_escape_scan_code_sends_exactly_one_mapped_down_up_pair(self):
+        captured = []
+
+        class User32:
+            def MapVirtualKeyW(self, key, mode):
+                captured.append(("map", key, mode))
+                return 0x01
+
+            def SendInput(self, count, inputs, input_size):
+                captured.append((
+                    "input",
+                    count,
+                    [
+                        (
+                            inputs[index].keyboard.virtual_key,
+                            inputs[index].keyboard.scan_code,
+                            inputs[index].keyboard.flags,
+                        )
+                        for index in range(count)
+                    ],
+                    input_size,
+                ))
+                return count
+
+        api = _Win32Api.__new__(_Win32Api)
+        api.user32 = User32()
+        self.assertTrue(api.send_scan_code_key_press(VK_ESCAPE))
+        self.assertEqual(captured[0], ("map", VK_ESCAPE, MAPVK_VK_TO_VSC))
+        self.assertEqual(
+            captured[1][2],
+            [
+                (0, 0x01, KEYEVENTF_SCANCODE),
+                (0, 0x01, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP),
+            ],
+        )
 
 
 if __name__ == "__main__":
