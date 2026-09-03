@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Runtime infrastructure implemented above frozen Environment v1; live runtime validation pending**
-- Next milestone: **Phase 4 — deep reinforcement learning, after runtime sign-off**
+- Current milestone: **Phase 3.5 complete — PvZ AI Harness v0.1.0 frozen**
+- Next milestone: **Phase 4 — deep reinforcement learning**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -55,6 +55,8 @@ Treat the following as stable interfaces unless the user explicitly approves a b
 - Reward v1 schema and default `RewardSpec`
 - transition JSONL schema v2
 - baseline policy/evaluation API
+- `PvZSession`, `PvZRuntime`, `GamePhase`, `FocusMode`, `EnvironmentHealth`,
+  public runtime snapshots, and Environment v1 runtime adapters
 
 Do **not** casually redesign or merge these layers together during later phases.
 
@@ -361,7 +363,7 @@ The policy should learn strategy rather than deterministic game rules already en
 Keep the following roles distinct:
 
 - `README.md` — concise public/portfolio overview, architecture, current status, setup and headline results;
-- `docs/phase-1-2-development-report.tex` — current LaTeX technical report source, to be extended/renamed as later phases are completed;
+- `docs/technical-development-report.tex` — cumulative LaTeX technical development report;
 - `AGENTS.md` — coding-agent rules, frozen contracts, current phase and workflow;
 - Git history/tests — implementation-level trace of experiments and changes.
 
@@ -398,8 +400,8 @@ Be explicit about what was **not** tested or not completed.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
 - **Phase 3 is complete and its contracts remain frozen.**
-- Runtime session/watchdog/focus/pause infrastructure is implemented in
-  `pvz_runtime`. A first monitor pass exposed and prompted fixes for dropped
-  commands, weak foreground acquisition, and virtual-key Escape delivery.
-  The corrected FIFO/scan-code path still requires the ordered live retest in
-  `docs/LIVE_RUNTIME_VALIDATION.md` before PR #12 is merged or Phase 4 begins.
+- **Phase 3.5 is complete and frozen.** Final operator-verified live validation
+  confirmed AUTO focus, scan-code pause/resume, idempotence, MANUAL fail-closed
+  behavior, and restart/reattach. Phase 4 builds training above the harness;
+  it must not absorb runtime safety, UI monitor, or training configuration into
+  frozen reader/controller/environment/runtime layers.

@@ -70,25 +70,33 @@ and Board become unavailable. Restart the supported game and use
 **Refresh / Reattach**. Confirm a new PID/HWND is adopted, state reading
 recovers, and no stale PID or HWND remains.
 
-## Current live-validation status
+## Final operator-verified result — 4 September 2026
 
-Environment v1 gameplay execution was previously validated end to end. The
-runtime read-only path also discovered the real process, bound the titled
-800×600 window to the same PID, read a coherent Board, classified PAUSED, and
-reported observation/action health correctly. A first AUTO focus attempt was
-denied by Windows and failed closed without sending Escape.
+Phase 3.5 has passed its final operator-verified validation against the
+supported PvZ GOTY client. This record distinguishes those interactive results
+from automated tests and CI; no claim is made that the automated suite itself
+performed desktop input.
 
-The first real monitor pass subsequently confirmed that the GUI launches,
-tracks the correct PID/window/title, reports healthy reader/controller/Board
-state, updates sun/entities/wave, follows manual PLAYING ↔ PAUSED transitions,
-and visibly focuses PvZ through **Focus Game**. GUI Pause/Resume did not operate
-reliably. Review found that button commands were silently discarded whenever a
-periodic refresh future existed, while the foreground and virtual-key input
-paths also needed hardening for the real client.
+- Read-only attachment found the process and PID-bound titled game window,
+  read a coherent Board/live state, and tracked real `PLAYING` / `PAUSED`
+  changes correctly.
+- AUTO focus acquired and verified the expected PvZ HWND as foreground. The
+  runtime remains fail-closed when foreground verification does not succeed.
+- One logical scan-code Escape paused the game and one resumed it; memory
+  confirmed both transitions and no duplicate key events were required.
+- Runtime idempotence passed: playing → `pause()` → `CHANGED`; paused →
+  `pause()` → `ALREADY_SET`; paused → `resume()` → `CHANGED`; playing →
+  `resume()` → `ALREADY_SET`.
+- In AUTO mode the monitor Pause and Resume controls changed the real game,
+  updated phase/pause state, and displayed the corresponding operation status.
+- In MANUAL mode with the monitor foreground, Pause returned `FOCUS_REQUIRED`,
+  issued no Escape input, and left the game unchanged.
+- Closing PvZ invalidated the session. After restart, Refresh/Reattach adopted
+  the new PID/HWND, resumed live reads, and did not reuse stale identity.
 
-The code now queues operator commands ahead of coalesced refreshes, displays
-each operation result, retains focus/pause/input diagnostics, uses a bounded
-verified foreground-acquisition sequence, and sends one mapped scan-code
-Escape down/up pair. These corrections are covered offline but have not yet
-passed the B–G real-game retest. Do not mark Phase 3.5 complete or merge PR #12
-until the successful results are recorded here.
+The first monitor pass had exposed dropped GUI commands, missing operation
+feedback, insufficiently hardened foreground acquisition, and an unvalidated
+virtual-key Escape path. The bounded command FIFO, coalesced refreshes, visible
+results, verified focus sequence, and one scan-code Escape pair corrected those
+issues before this final validation. Phase 3.5 runtime/harness infrastructure
+is therefore complete and frozen as the stable pre-Phase-4 boundary.

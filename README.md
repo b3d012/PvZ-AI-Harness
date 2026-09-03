@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Runtime infrastructure implemented above the frozen Phase 1–3 contracts; dedicated live runtime validation remains. Phase 4 is next after sign-off.**
+> **Current milestone: Phase 3.5 complete — the Phase 1–3.5 PvZ AI Harness is frozen at v0.1.0. Phase 4 deep-reinforcement-learning work is next.**
 
 ## Architecture
 
@@ -49,8 +49,8 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
 | Phase 3 | ✅ Complete | Environment v1 frozen after offline and end-to-end live validation |
-| Runtime layer | 🚧 Live validation | PID-bound sessions, watchdog, focus policy, pause/resume, diagnostics, monitor |
-| Phase 4 | Planned | Deep-RL baselines and training |
+| Phase 3.5 | ✅ Complete / frozen | PID-bound runtime, watchdog, focus, pause/resume, diagnostics, monitor |
+| Phase 4 | Next | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
 ## Phase 1 — Game-state reader
@@ -166,18 +166,15 @@ The read-only runtime path has been validated against a running client,
 including automatic PID discovery, PID-matched window binding, coherent Board
 observation, PAUSED classification, and the `can_observe`/`can_act` safety
 distinction. Restart recovery, focus-policy input, pause/resume input, and
-monitor controls remain on the dedicated live checklist.
+monitor controls were subsequently completed in final operator verification.
 
-A first live monitor pass confirmed correct process/window/Board reporting,
-live entity updates, manual PLAYING/PAUSED phase tracking, and explicit Focus
-Game behavior. It also exposed two integration defects that mocks could not:
-button commands could be discarded behind an automatic refresh, and the
-original foreground/virtual-key path was insufficiently robust for GUI-driven
-pause control. The fixes now queue user commands ahead of coalesced refreshes,
-show each operation result, use verified Win32 foreground activation, and send
-one mapped scan-code Escape down/up pair. These corrections remain pending the
-ordered real-game pause/resume and restart retest; they are not yet claimed as
-live-validated.
+Initial monitor validation exposed dropped commands during refresh and gaps in
+real Windows focus/key delivery that mocks alone could not prove. The corrected
+FIFO scheduler, visible operation results, verified focus sequence, and
+scan-code Escape path then passed final operator-verified live validation on
+4 September 2026: AUTO focus, Pause/Resume, idempotence, MANUAL fail-closed
+safety, and restart/reattach all succeeded. See
+[runtime live validation](docs/LIVE_RUNTIME_VALIDATION.md).
 
 ## Repository layout
 
@@ -193,7 +190,7 @@ references/         pvztoolkit research-reference submodule
 
 ## Technical report
 
-**[Technical Development Report (LaTeX)](docs/phase-1-2-development-report.tex)** documents the Phase 1--3 architecture, research methodology, validation, Environment v1 contracts, and Phase 4 transition.
+**[Technical Development Report (LaTeX)](docs/technical-development-report.tex)** documents the Phase 1–3.5 architecture, research methodology, validation, frozen contracts, and Phase 4 transition.
 
 ## Setup
 
