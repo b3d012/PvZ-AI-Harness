@@ -105,10 +105,19 @@ If a Phase 4 task appears to require changing a frozen interface:
   gating, snapshots, and Environment v1 adapters.
 - MANUAL mode must never restore focus implicitly. AUTO mode may restore focus
   only for the PID-bound window and must verify it is foreground before input.
+- Explicit operator Focus may restore a minimized PID-bound window and use
+  documented Win32 input-queue attachment/activation calls, but exact
+  foreground HWND verification remains mandatory before any input.
+- Runtime Escape input uses one `MapVirtualKey`-derived scan-code down/up pair.
+  Never send virtual-key plus scan-code fallbacks for one logical pause request;
+  a duplicate Escape would undo the requested transition.
 - Do not create alternate session/focus/pause logic in tools or UIs. The Tk
   monitor is a frontend to the same runtime API.
 - Runtime operations are serialized. Do not add autonomous input loops or
   uncontrolled reconnect polling.
+- Monitor user commands must enter its bounded FIFO and execute once. Automatic
+  refresh is coalesced, never queued, and must yield to pending commands. Never
+  return to a shared-Future design that silently drops button presses.
 
 ### Live interaction
 
@@ -390,5 +399,7 @@ Be explicit about what was **not** tested or not completed.
 - Windows offline CI exists and passes.
 - **Phase 3 is complete and its contracts remain frozen.**
 - Runtime session/watchdog/focus/pause infrastructure is implemented in
-  `pvz_runtime`; its dedicated live checklist remains to be recorded before
-  beginning Phase 4.
+  `pvz_runtime`. A first monitor pass exposed and prompted fixes for dropped
+  commands, weak foreground acquisition, and virtual-key Escape delivery.
+  The corrected FIFO/scan-code path still requires the ordered live retest in
+  `docs/LIVE_RUNTIME_VALIDATION.md` before PR #12 is merged or Phase 4 begins.

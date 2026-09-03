@@ -71,8 +71,19 @@ immediately so actions still fail closed.
 `FocusMode.MANUAL` requires the verified PID-bound window already to be
 foreground. Both the runtime gate and the input backend refuse input if focus
 is absent or is lost in the final race before input. `FocusMode.AUTO` may ask
-Windows to focus the bound HWND, but foreground identity is checked afterward.
-Failure prevents Controller v1 from being called.
+Windows to focus the bound HWND. The backend restores a minimized target,
+temporarily attaches the caller to the relevant GUI input threads, raises and
+activates the window, always detaches the input queues, and briefly polls for
+exact foreground confirmation. Failure prevents Controller v1 from being
+called. This follows the constraints documented for
+[`SetForegroundWindow`](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-setforegroundwindow)
+and [`AttachThreadInput`](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-attachthreadinput);
+it does not synthesize Alt or click another window.
+
+Clicking the monitor naturally makes the monitor foreground. Consequently,
+GUI Pause/Resume in MANUAL mode normally returns `FOCUS_REQUIRED`; the operator
+must choose AUTO for GUI-driven transitions. The explicit Focus Game control
+is itself an operator-authorized focus request and works in either mode.
 
 `PvZRuntime.execute()` performs this sequence under one lock:
 
@@ -95,7 +106,15 @@ current Board first and do nothing when it already has the requested value.
 Otherwise the focus policy is satisfied, exactly one Escape press is sent to
 the verified foreground window, and read-only observations poll for the
 requested `GameState.paused` value within configurable bounds. Failure is
-reported as a typed `PauseResult`; Escape is never repeatedly toggled.
+reported as a typed `PauseResult`; Escape is never repeatedly toggled. Escape
+uses a `MapVirtualKeyW`-derived scan code with one `KEYEVENTF_SCANCODE` down/up
+pair. A virtual-key fallback is deliberately not sent because two accepted
+logical presses would cancel each other.
+
+Snapshots retain the latest focus, pause/resume, and input outcomes separately
+from reader errors. The monitor presents `CHANGED`, `ALREADY_SET`,
+`FOCUS_REQUIRED`, `FOCUS_FAILED`, `INPUT_FAILED`, and `TRANSITION_TIMEOUT`
+directly with their detail strings.
 
 ## Environment v1 integration
 
@@ -120,6 +139,9 @@ episode semantics. Future Phase 4 code can continue consuming Environment v1.
 
 The runtime does not start autonomous pollers. Its one reentrant lock prevents
 reattach, observation, pause, focus, and action operations from racing. The Tk
-monitor owns one worker thread so process reads do not block GUI repainting;
-all monitor controls delegate to the same serialized runtime methods. Closing
-the monitor stops its executor and detaches the runtime.
+monitor owns one worker thread so process reads do not block GUI repainting.
+Operator commands enter a bounded FIFO and execute exactly once; automatic
+refresh is coalesced rather than queued and only starts while no command is
+pending or running. Thus a refresh can delay a button command briefly but can
+never discard it. Closing stops new work, clears commands that have not begun,
+and schedules runtime detach after the active operation finishes.

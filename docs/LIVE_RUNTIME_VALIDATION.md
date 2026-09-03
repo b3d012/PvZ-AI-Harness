@@ -1,74 +1,94 @@
 # Runtime live-validation checklist
 
 These tools require Windows and a legally obtained PvZ GOTY 1.2.0.1073
-installation. Offline tests never invoke them or send desktop input.
+installation. Offline tests never invoke them or send desktop input. The live
+tool never plants, shovels, collects pickups, or navigates menus.
 
-## Read-only inspection
+## A — Read only
 
-Start PvZ, then run:
+Start PvZ, prepare a level, and run:
 
 ```powershell
+conda activate pvz-dl
 python tools/live_test_runtime.py --snapshot snapshots/runtime.json
 ```
 
-Confirm that the process PID, matching window title, reader status, Board
-status, phase, focus, state age, and compact game summary are sensible. Close
-PvZ, restart it, rerun or use Refresh/Reattach in the monitor, and confirm the
-new PID is adopted rather than the old attachment.
+Confirm the process and window are correct, `expected_pvz_hwnd` matches the
+game window, the Board summary is coherent, and PLAYING/PAUSED follows manual
+game changes.
 
-## Explicit focus and pause validation
+## B–D — Focus, direct Escape, and runtime idempotence
 
-Prepare an active level. These modes can send focus and Escape input only after
-interactive confirmation:
+Manually leave the level playing before each requested confirmation, then run:
 
 ```powershell
-python tools/live_test_runtime.py --focus-mode manual --exercise-focus --exercise-pause --snapshot snapshots/runtime-controls.json
-python tools/live_test_runtime.py --focus-mode auto --exercise-focus --exercise-pause
+python tools/live_test_runtime.py --focus-mode auto --exercise-focus --exercise-escape --exercise-pause --snapshot snapshots/runtime-controls.json
 ```
 
-Validate in order:
+The tool pauses before input. Confirm:
 
-1. With MANUAL mode and PvZ unfocused, ordinary runtime actions are refused.
-2. `--exercise-focus` targets the detected PID-bound PvZ window.
-3. Pause changes running to paused with one Escape press.
-4. A second pause returns `ALREADY_SET` and does not toggle.
-5. Resume changes paused to running with one Escape press.
-6. A second resume returns `ALREADY_SET` and does not toggle.
-7. The tool restores the pause state that existed before the exercise.
-8. AUTO mode restores and verifies foreground focus when Windows permits it.
-9. Switching away or denying focus produces a typed refusal and no gameplay
-   click.
-10. Closing/reopening PvZ is recovered by a controlled reattach.
+1. Focus identifies the expected HWND, reports the current foreground HWND,
+   brings PvZ forward, and finishes with `foreground_matches=True`.
+2. Direct Escape press 1 produces `paused=True` in memory before press 2 is
+   permitted.
+3. Direct Escape press 2 produces `paused=False` in memory.
+4. Runtime `pause` returns `changed`, the second pause returns `already_set`,
+   `resume` returns `changed`, and the second resume returns `already_set`.
+5. No step reports a second press after a failed transition.
 
-The tool does not plant, shovel, collect pickups, navigate menus, or automate
-level progression.
-
-## Monitor
+## E — GUI controls in AUTO mode
 
 ```powershell
 python tools/live_monitor_environment.py
 ```
 
-The monitor displays connection, PID, HWND/title, focus mode, reader and
-controller readiness, Board validity, phase, level/wave/pause/sun/entity
-summary, state age, last action, and last error. Controls use the shared runtime
-API for Focus, Pause, Resume, Refresh/Reattach, Snapshot JSON, and Detach.
+Select `auto`, wait until **Focus mode** shows `AUTO`, and leave a level
+playing. Then validate:
+
+1. Click **Pause** once: the game visibly pauses, phase becomes `PAUSED`,
+   Paused becomes `Yes`, Result is `CHANGED`, Detail is `state_verified`.
+2. Click **Pause** again: the game remains paused and Result is `ALREADY_SET`.
+3. Click **Resume** once: the game visibly resumes, phase becomes `PLAYING`,
+   Paused becomes `No`, and Result is `CHANGED`.
+4. Click **Resume** again: the game remains running and Result is
+   `ALREADY_SET`.
+5. Confirm Expected PvZ HWND equals Foreground HWND for input operations and
+   Latest input reports `escape_sent` only for actual transitions.
+
+## F — MANUAL safety
+
+Select `manual`, leave the monitor itself foreground, and click **Pause**.
+Confirm Result is `FOCUS_REQUIRED`, Detail explains that MANUAL mode requires
+PvZ foreground, the game does not pause, and Latest input is `not_sent`.
+The explicit **Focus Game** button is allowed to focus PvZ in either mode, but
+MANUAL Pause/Resume never steals focus implicitly.
+
+## G — Process restart
+
+With the monitor running, close PvZ and confirm the process, window, reader,
+and Board become unavailable. Restart the supported game and use
+**Refresh / Reattach**. Confirm a new PID/HWND is adopted, state reading
+recovers, and no stale PID or HWND remains.
 
 ## Current live-validation status
 
-Environment v1 gameplay execution was previously validated end to end. The new
-runtime's read-only path was also run against the real client: it automatically
-found the process, bound the matching 800 by 600 titled window to the same PID,
-read a coherent Board, classified the observed paused state as `PAUSED`, and
-reported `can_observe=True` while correctly keeping `can_act=False` because the
-game was paused and unfocused. No input was enabled for this pass.
+Environment v1 gameplay execution was previously validated end to end. The
+runtime read-only path also discovered the real process, bound the titled
+800×600 window to the same PID, read a coherent Board, classified PAUSED, and
+reported observation/action health correctly. A first AUTO focus attempt was
+denied by Windows and failed closed without sending Escape.
 
-Process restart, MANUAL/AUTO focus-policy input, idempotent pause/resume, and
-monitor controls still require a dedicated successful live pass. An AUTO-mode
-control attempt was also run: Windows denied foreground activation, the
-runtime returned `focus_result=False`, resume attempts returned
-`FOCUS_FAILED`, and no Escape transition was sent. Repeated requests for the
-already-paused state returned `ALREADY_SET`, and the original pause state was
-preserved. This validates the live fail-closed focus path, not successful
-focus or pause-state transitions. Do not mark the remaining items
-live-validated until the checklist is recorded with actual results.
+The first real monitor pass subsequently confirmed that the GUI launches,
+tracks the correct PID/window/title, reports healthy reader/controller/Board
+state, updates sun/entities/wave, follows manual PLAYING ↔ PAUSED transitions,
+and visibly focuses PvZ through **Focus Game**. GUI Pause/Resume did not operate
+reliably. Review found that button commands were silently discarded whenever a
+periodic refresh future existed, while the foreground and virtual-key input
+paths also needed hardening for the real client.
+
+The code now queues operator commands ahead of coalesced refreshes, displays
+each operation result, retains focus/pause/input diagnostics, uses a bounded
+verified foreground-acquisition sequence, and sends one mapped scan-code
+Escape down/up pair. These corrections are covered offline but have not yet
+passed the B–G real-game retest. Do not mark Phase 3.5 complete or merge PR #12
+until the successful results are recorded here.

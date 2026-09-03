@@ -158,7 +158,7 @@ python tools/live_test_runtime.py --snapshot snapshots/runtime.json
 ```
 
 Focus and pause/resume input require explicit `--exercise-focus` and
-`--exercise-pause` flags plus interactive confirmation. See
+`--exercise-escape` / `--exercise-pause` flags plus interactive confirmation. See
 [Runtime architecture](docs/RUNTIME.md) and
 [runtime live validation](docs/LIVE_RUNTIME_VALIDATION.md).
 
@@ -168,10 +168,16 @@ observation, PAUSED classification, and the `can_observe`/`can_act` safety
 distinction. Restart recovery, focus-policy input, pause/resume input, and
 monitor controls remain on the dedicated live checklist.
 
-A live AUTO-focus attempt was denied by Windows and correctly failed closed:
-focus returned false, resume returned `FOCUS_FAILED`, no Escape transition was
-sent, and the original paused state was preserved. Successful focus and pause
-transitions remain to be validated interactively.
+A first live monitor pass confirmed correct process/window/Board reporting,
+live entity updates, manual PLAYING/PAUSED phase tracking, and explicit Focus
+Game behavior. It also exposed two integration defects that mocks could not:
+button commands could be discarded behind an automatic refresh, and the
+original foreground/virtual-key path was insufficiently robust for GUI-driven
+pause control. The fixes now queue user commands ahead of coalesced refreshes,
+show each operation result, use verified Win32 foreground activation, and send
+one mapped scan-code Escape down/up pair. These corrections remain pending the
+ordered real-game pause/resume and restart retest; they are not yet claimed as
+live-validated.
 
 ## Repository layout
 
