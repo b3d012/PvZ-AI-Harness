@@ -207,6 +207,9 @@ class RuntimeSnapshot:
     game_state: GameStateSummary | None
     last_action: str | None
     last_error: str | None
+    last_focus_result: str | None = None
+    last_pause_result: str | None = None
+    last_input_result: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -217,4 +220,7 @@ class RuntimeSnapshot:
             "game_state": None if self.game_state is None else asdict(self.game_state),
             "last_action": self.last_action,
             "last_error": self.last_error,
+            "last_focus_result": self.last_focus_result,
+            "last_pause_result": self.last_pause_result,
+            "last_input_result": self.last_input_result,
         }

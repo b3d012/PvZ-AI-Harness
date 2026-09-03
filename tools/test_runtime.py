@@ -61,11 +61,15 @@ class FakeMemory:
 
 
 class FakeWindowBackend:
-    def __init__(self, *, process_id=10, present=True, focused=True, focus_succeeds=True):
+    def __init__(
+        self, *, process_id=10, present=True, focused=True,
+        focus_succeeds=True, input_fails=False,
+    ):
         self.process_id = process_id
         self.present = present
         self.focused = focused
         self.focus_succeeds = focus_succeeds
+        self.input_fails = input_fails
         self.expected_process_id = None
         self.auto_focus = True
         self.escape_calls = 0
@@ -94,6 +98,9 @@ class FakeWindowBackend:
             self.focused = True
         return self.focused
 
+    def foreground_window(self):
+        return 100 if self.focused else 999
+
     def press_escape(self):
         if not self.present:
             raise GameWindowUnavailable("missing")
@@ -101,6 +108,8 @@ class FakeWindowBackend:
             raise InputFailed("not foreground")
         if not self.focused and not self.focus_game():
             raise InputFailed("focus failed")
+        if self.input_fails:
+            raise InputFailed("SendInput rejected Escape")
         self.escape_calls += 1
         if self.on_escape:
             self.on_escape()
@@ -239,13 +248,14 @@ class RuntimeTests(unittest.TestCase):
     def make_runtime(
         self, *, mode=FocusMode.MANUAL, focused=True, focus_succeeds=True,
         present=True, current=None, observer_only=False, controller=None,
-        pause_timeout=0.1, terminal_phase_provider=None,
+        pause_timeout=0.1, terminal_phase_provider=None, input_fails=False,
     ):
         process = ProcessIdentity(10, "PlantsVsZombies.exe")
         discovery = FakeProcessDiscovery(process)
         self.reader = MutableReader(game_state() if current is None else current)
         self.backend = FakeWindowBackend(
             process_id=10, present=present, focused=focused, focus_succeeds=focus_succeeds,
+            input_fails=input_fails,
         )
         session = PvZSession(
             process_discovery=discovery,
@@ -343,8 +353,13 @@ class RuntimeTests(unittest.TestCase):
 
     def test_pause_focus_and_transition_failures_are_explicit(self):
         manual = self.make_runtime(focused=False)
-        self.assertEqual(manual.pause().status, PauseStatus.FOCUS_REQUIRED)
+        manual_result = manual.pause()
+        self.assertEqual(manual_result.status, PauseStatus.FOCUS_REQUIRED)
+        self.assertEqual(manual_result.reason, "manual_mode_requires_pvz_foreground")
         self.assertEqual(self.backend.escape_calls, 0)
+        manual_snapshot = manual.snapshot().to_dict()
+        self.assertIn("focus_required", manual_snapshot["last_pause_result"])
+        self.assertEqual(manual_snapshot["last_input_result"], "not_sent")
 
         auto = self.make_runtime(mode=FocusMode.AUTO, focused=False, focus_succeeds=False)
         self.assertEqual(auto.pause().status, PauseStatus.FOCUS_FAILED)
@@ -357,6 +372,10 @@ class RuntimeTests(unittest.TestCase):
         self.reader.current = None
         self.assertEqual(unavailable.pause().status, PauseStatus.STATE_UNAVAILABLE)
 
+        input_failure = self.make_runtime(input_fails=True)
+        self.assertEqual(input_failure.pause().status, PauseStatus.INPUT_FAILED)
+        self.assertEqual(self.backend.escape_calls, 0)
+
     def test_snapshot_is_compact_serializable_and_adapters_gate_actions(self):
         runtime = self.make_runtime()
         snapshot = runtime.snapshot()
@@ -364,9 +383,24 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(document["timestamp"], 123.0)
         self.assertEqual(document["game_state"]["sun"], 100)
         self.assertNotIn("plants_data", document["game_state"])
+        self.assertEqual(document["session"]["foreground_hwnd"], 100)
         self.assertIs(runtime.reader_adapter().read(), self.reader.current)
         result = runtime.controller_adapter().plant(self.reader.current, 0, 2, 4)
         self.assertTrue(result.attempted)
+
+    def test_pause_diagnostics_persist_in_snapshot_without_being_an_error(self):
+        runtime = self.make_runtime()
+
+        def toggle():
+            self.reader.current.paused = not self.reader.current.paused
+
+        self.backend.on_escape = toggle
+        self.assertEqual(runtime.pause().status, PauseStatus.CHANGED)
+        document = runtime.snapshot().to_dict()
+        self.assertEqual(document["last_pause_result"], "changed:state_verified")
+        self.assertEqual(document["last_input_result"], "escape_sent")
+        self.assertIn("foreground_confirmed", document["last_focus_result"])
+        self.assertIsNone(document["last_error"])
 
     def test_validated_terminal_hint_is_exposed_without_changing_game_state(self):
         runtime = self.make_runtime(terminal_phase_provider=lambda _state: GamePhase.LEVEL_WON)

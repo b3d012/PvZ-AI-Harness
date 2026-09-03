@@ -66,6 +66,9 @@ class PvZRuntime:
         self._last_reader_valid = False
         self._last_error: str | None = None
         self._last_action: str | None = None
+        self._last_focus_result: str | None = None
+        self._last_pause_result: str | None = None
+        self._last_input_result: str | None = None
 
     @property
     def focus_mode(self) -> FocusMode:
@@ -121,7 +124,12 @@ class PvZRuntime:
         """Explicit operator request to focus PvZ, regardless of focus mode."""
         with self._lock:
             focused = self.session.focus_window()
-            if not focused:
+            if focused:
+                self._last_focus_result = "focused:foreground_confirmed"
+                if self._last_error and self._last_error.startswith("focus_failed"):
+                    self._last_error = None
+            else:
+                self._last_focus_result = "focus_failed:foreground_not_confirmed"
                 self._last_error = self.session.status().last_error or "focus_failed"
             return focused
 
@@ -129,16 +137,19 @@ class PvZRuntime:
         with self._lock:
             status = self.session.status()
             if not status.window_valid:
+                self._last_focus_result = "window_invalid"
                 return RuntimeActionStatus.WINDOW_INVALID
             if status.focused:
+                self._last_focus_result = "already_focused:foreground_confirmed"
                 return RuntimeActionStatus.ACTION_OK
             if self.focus_mode is FocusMode.MANUAL:
+                self._last_focus_result = "focus_required:manual_mode"
                 return RuntimeActionStatus.FOCUS_REQUIRED
-            return (
-                RuntimeActionStatus.ACTION_OK
-                if self.session.focus_window()
-                else RuntimeActionStatus.FOCUS_FAILED
-            )
+            if self.session.focus_window():
+                self._last_focus_result = "focused:foreground_confirmed"
+                return RuntimeActionStatus.ACTION_OK
+            self._last_focus_result = "focus_failed:foreground_not_confirmed"
+            return RuntimeActionStatus.FOCUS_FAILED
 
     def execute(self, action: RuntimeAction) -> RuntimeActionResult:
         """Execute one semantic Controller v1 action through fail-closed gates."""
@@ -187,34 +198,51 @@ class PvZRuntime:
         with self._lock:
             state = self.observe()
             if not self.session.status().attached:
-                return PauseResult(PauseStatus.NOT_ATTACHED, desired_paused, None, "not_attached")
+                return self._pause_result(
+                    PauseStatus.NOT_ATTACHED, desired_paused, None, "not_attached", "not_sent"
+                )
             if state is None:
-                return PauseResult(PauseStatus.STATE_UNAVAILABLE, desired_paused, None, "board_unavailable")
+                return self._pause_result(
+                    PauseStatus.STATE_UNAVAILABLE, desired_paused, None,
+                    "board_unavailable", "not_sent",
+                )
             current = bool(state.paused)
             if current is desired_paused:
-                return PauseResult(PauseStatus.ALREADY_SET, desired_paused, current, "already_set")
+                return self._pause_result(
+                    PauseStatus.ALREADY_SET, desired_paused, current, "already_set", "not_sent"
+                )
             focus = self.ensure_focus()
             if focus is RuntimeActionStatus.FOCUS_REQUIRED:
-                return PauseResult(PauseStatus.FOCUS_REQUIRED, desired_paused, current, focus.value)
+                return self._pause_result(
+                    PauseStatus.FOCUS_REQUIRED, desired_paused, current,
+                    "manual_mode_requires_pvz_foreground", "not_sent",
+                )
             if focus is not RuntimeActionStatus.ACTION_OK:
-                return PauseResult(PauseStatus.FOCUS_FAILED, desired_paused, current, focus.value)
+                return self._pause_result(
+                    PauseStatus.FOCUS_FAILED, desired_paused, current,
+                    "foreground_not_confirmed", "not_sent",
+                )
             try:
                 self.session.input_backend.press_escape()
             except ControllerInputError as error:
-                self._last_error = f"pause_input_failed:{error}"
-                return PauseResult(PauseStatus.INPUT_FAILED, desired_paused, current, str(error))
+                return self._pause_result(
+                    PauseStatus.INPUT_FAILED, desired_paused, current, str(error), "input_failed"
+                )
+            self._last_input_result = "escape_sent"
 
             waited = 0.0
             while True:
                 state = self.observe()
                 if state is not None and bool(state.paused) is desired_paused:
-                    return PauseResult(PauseStatus.CHANGED, desired_paused, desired_paused, "state_verified")
+                    return self._pause_result(
+                        PauseStatus.CHANGED, desired_paused, desired_paused,
+                        "state_verified", "escape_sent",
+                    )
                 if waited >= self.config.pause_timeout_seconds:
                     observed = None if state is None else bool(state.paused)
-                    self._last_error = "pause_transition_timeout"
-                    return PauseResult(
+                    return self._pause_result(
                         PauseStatus.TRANSITION_TIMEOUT, desired_paused, observed,
-                        "pause state did not reach requested value",
+                        "pause state did not reach requested value", "escape_sent",
                     )
                 interval = min(
                     self.config.pause_poll_interval_seconds,
@@ -239,6 +267,9 @@ class PvZRuntime:
                 timestamp=self._wall_clock(), session=session, health=health,
                 phase=self.phase, game_state=summary, last_action=self._last_action,
                 last_error=self._last_error or session.last_error,
+                last_focus_result=self._last_focus_result,
+                last_pause_result=self._last_pause_result,
+                last_input_result=self._last_input_result,
             )
 
     def reader_adapter(self) -> "RuntimeReaderAdapter":
@@ -358,6 +389,24 @@ class PvZRuntime:
             self._last_error = self._last_action
             LOGGER.warning("Runtime action refused: %s", self._last_action)
         return RuntimeActionResult(status, reason, action, controller_result, health)
+
+    def _pause_result(
+        self,
+        status: PauseStatus,
+        desired_paused: bool,
+        observed_paused: bool | None,
+        reason: str,
+        input_result: str,
+    ) -> PauseResult:
+        result = PauseResult(status, desired_paused, observed_paused, reason)
+        self._last_pause_result = f"{status.value}:{reason}"
+        self._last_input_result = input_result
+        if result.success:
+            if self._last_error and self._last_error.startswith("pause_"):
+                self._last_error = None
+        else:
+            self._last_error = f"pause_{status.value}:{reason}"
+        return result
 
     def _clear_observation(self) -> None:
         self._last_state = None

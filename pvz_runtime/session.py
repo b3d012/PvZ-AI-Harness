@@ -48,6 +48,7 @@ class SessionStatus:
     version_verified: bool
     generation: int
     last_error: str | None
+    foreground_hwnd: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +72,7 @@ class SessionStatus:
             "version_verified": self.version_verified,
             "generation": self.generation,
             "last_error": self.last_error,
+            "foreground_hwnd": self.foreground_hwnd,
         }
 
 
@@ -254,6 +256,8 @@ class PvZSession:
                 return False
             if not focused:
                 self._last_error = "focus_failed:foreground_not_confirmed"
+            elif self._last_error and self._last_error.startswith("focus_failed"):
+                self._last_error = None
             return focused
 
     def status(self) -> SessionStatus:
@@ -268,6 +272,11 @@ class PvZSession:
                 and window.height > 0
             )
             focused = self.is_focused() if valid else False
+            foreground_hwnd = None
+            try:
+                foreground_hwnd = self.input_backend.foreground_window()
+            except (GameWindowUnavailable, InputFailed, AttributeError):
+                pass
             return SessionStatus(
                 attached=self._reader is not None and alive,
                 process_alive=alive,
@@ -279,6 +288,7 @@ class PvZSession:
                 version_verified=False,
                 generation=self._generation,
                 last_error=self._last_error,
+                foreground_hwnd=foreground_hwnd,
             )
 
     def _is_process_alive(self) -> bool:
