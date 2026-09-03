@@ -24,6 +24,7 @@ env/
 *.log
 /logs/
 /trajectories/
+/snapshots/
 
 # Future ML experiment output
 /runs/
