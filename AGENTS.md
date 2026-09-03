@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3.8 — Environment v1 freeze candidate; live validation pending**
-- Next milestone: **Phase 4 — deep reinforcement learning (after Phase 3 sign-off)**
+- Current milestone: **Phase 3 complete — Environment v1 frozen**
+- Next milestone: **Phase 4 — deep reinforcement learning**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -274,12 +274,17 @@ Recommended sequence:
   engineering baseline may inspect the current structured snapshot for simple
   economy/threat rules, but still relies on the Action v1 mask rather than
   reproducing placement legality; it is not an apples-to-apples neural-policy
-  architecture. The explicit live runner is prepared but has not yet been
-  validated against a real episode.
+  architecture. The explicit live runner completed heuristic and seeded
+  random-policy end-to-end validation against the real client.
 
 ### Phase 3.8 — Environment v1 freeze
 
-Freeze candidate prepared; complete Phase 3 only when:
+✅ Complete: Environment v1 is frozen after offline validation and recorded
+end-to-end live validation against the real client. The frozen public
+contracts are Observation v1, Action v1, Environment v1, Reward v1, and
+transition JSONL schema v2.
+
+The completed freeze criteria were:
 
 - observation encoding is deterministic;
 - invalid actions are masked/rejected correctly;
@@ -289,7 +294,12 @@ Freeze candidate prepared; complete Phase 3 only when:
 - trajectories round-trip to disk;
 - repeated baseline runs do not corrupt the environment interface.
 
-The candidate freezes Environment schema v1 and exposes `environment_contract()` metadata containing observation, action, environment, reward, and transition schema identifiers. `tools/live_run_environment.py` is dry-run by default, requires explicit active rows, and needs `--execute` before normal mouse input. Its manual checklist is in `docs/PHASE_3_VALIDATION.md`. Do not mark Phase 3 complete, merge the freeze PR, or create a milestone tag until the required live validation is recorded.
+`environment_contract()` exposes the frozen observation, action, environment,
+reward, and transition schema identifiers. `tools/live_run_environment.py` is
+dry-run by default, requires explicit active rows, and needs `--execute`
+before normal mouse input. Its completed validation record is in
+`docs/PHASE_3_VALIDATION.md`. Later breaking changes require explicit
+versioning and approval under the frozen-contract rules above.
 
 Only after this should the project move into the main deep-reinforcement-learning training phase.
 
@@ -344,4 +354,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.8, not model training.**
+- **Phase 3 is complete; the next implementation work may begin with Phase 4 deep reinforcement learning while preserving frozen contracts.**

@@ -23,7 +23,7 @@ python -m unittest discover -s tools -p "test_*.py" -v
 
 The Windows CI workflow runs the same compilation and offline suite.
 
-## Live finding and required retest
+## Live finding and reconciliation correction
 
 Live random-policy evidence showed a legal Peashooter reduce sun from 100 to
 0 while the first 0.25-second post-action snapshot did not yet contain the
@@ -38,7 +38,7 @@ JSONL transition is still written per strategic step.
 A transient inability to focus the PvZ window remains
 `CONTROLLER_FAILED`, rather than being reclassified as a timing issue.
 
-## Required manual live validation
+## Completed live validation
 
 Prepare an unpaused compatible PvZ level first. No menus, level selection, or
 reset automation is performed. Active rows must be supplied explicitly; they
@@ -62,15 +62,38 @@ Execute mode with ignored transition output:
 python tools/live_run_environment.py --all-rows --execute --policy heuristic --max-steps 10 --log-path trajectories/environment-v1.jsonl
 ```
 
-Confirm and record the following before merging/tagging the Phase 3 milestone:
+Dry-run validation reset successfully, produced observation shape `(5534,)`
+and action-mask shape `(541,)`, selected a semantic action with `legal=True`,
+and issued zero Controller input. JSONL round-trip validation preserved those
+observation and mask shapes together with episode, step, reward, and
+truncation data. Pre-action logging confirmed that selected random PLANT seeds
+were ready, affordable, and actionable.
 
-- dry run resets successfully, reports `(5534,)` and `(541,)`, selects a legal action, and issues zero clicks;
-- WAIT advances, produces a post-step observation/reward/outcome, and logs a transition;
-- a legal PLANT is reconciled as `PLANT_OBSERVED` either on the first post-step read or during bounded polling, and JSONL includes the final reconciliation state and Reward v1 fields;
-- inactive rows are masked and cannot issue controller input;
-- max-step truncation blocks later steps, while reset reactivates and restarts index zero;
-- scripted and random policies run only legal actions.
+The heuristic execute run on a normal five-row lawn completed 10 strategic
+steps: eight WAIT actions and two PLANT actions. The first PLANT had a
+transient Windows focus failure and was correctly classified
+`CONTROLLER_FAILED`; the next Sunflower was `PLANT_OBSERVED`. Subsequent WAIT
+actions were `WAIT_ADVANCED`; no action was rejected or masked action reached
+the Controller. It recorded zero `PLANT_NOT_OBSERVED` outcomes, one controller
+failure, one observed plant, cumulative reward `-0.005`, and
+`TRUNCATED`/`MAX_STEPS` at the configured horizon.
+
+The seeded random-valid-action execute run likewise completed 10 strategic
+steps (eight WAIT and two PLANT). Its first PLANT received the same transient
+focus failure classification; the following legal Sunflower was
+`PLANT_OBSERVED`. It recorded zero rejected or `PLANT_NOT_OBSERVED` actions,
+one controller failure, one observed plant, and cumulative reward `+0.005`.
+WAIT actions reconciled normally, including one transition with the `+0.01`
+Reward v1 wave-progress component, before `TRUNCATED`/`MAX_STEPS`.
+
+The earlier false-negative `PLANT_NOT_OBSERVED` finding led to bounded
+read-only reconciliation polling. Both post-fix live retests recorded zero
+`PLANT_NOT_OBSERVED` outcomes. The transient Windows focus failure remains an
+explicit Controller/runtime condition (`CONTROLLER_FAILED`), not a policy or
+environment correctness failure. Inactive-row blocking is covered by
+deterministic offline regression tests rather than artificially forcing live
+clicks on inactive rows.
 
 Natural win/loss remains unvalidated because GameState v1 has no authoritative
-terminal signal. The live runner therefore uses the bounded max-step
-truncation unless a future validated detector is injected.
+terminal signal. The live runner therefore uses bounded max-step truncation
+unless a future validated detector is injected.

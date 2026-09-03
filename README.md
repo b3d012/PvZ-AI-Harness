@@ -2,7 +2,7 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3.8 Environment v1 freeze candidate — offline validation is complete; required live validation remains pending.**
+> **Current milestone: Phase 3 complete — Environment v1 frozen. Phase 4 deep reinforcement learning is next.**
 
 ## Architecture
 
@@ -57,7 +57,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 1 | ✅ Complete | External memory reader and frozen `GameState v1` |
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
-| Phase 3 | 🚧 Freeze candidate | Environment v1 contracts, baselines, and offline validation complete; live sign-off pending |
+| Phase 3 | ✅ Complete | Environment v1 frozen after offline and end-to-end live validation |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -89,7 +89,7 @@ PvZ renders to an 800×600 logical client. Coordinates are defined in that logic
 
 ## Phase 3.3 — Environment step bridge
 
-`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata plus a Reward v1 outcome. Reset automation and pickup management remain deferred.
+`pvz_env.environment.PvZEnvironment` provides typed `observe()` and `step(action_index)` operations over injected reader, Controller v1, sleeper, and clock seams. Every legal `WAIT` or `PLANT` advances exactly once for the configured interval, reads a new `GameState`, re-encodes Observation v1, rebuilds the Action v1 mask with the environment-owned active-row configuration, and returns typed reconciliation metadata plus a Reward v1 outcome. An issued PLANT missing from that first post-step read may use bounded read-only polling to verify its postcondition; WAIT does not poll. Reset automation and pickup management remain deferred.
 
 ## Phase 3.4–3.5 — Transition logging and reward outcomes
 
@@ -105,7 +105,7 @@ Reward v1 assigns `+1.0` for a detected win and `-1.0` for a detected loss. A ne
 
 `pvz_env.baselines` provides a reproducibly seeded random valid-action policy, a deliberately small scripted economy/threat policy, typed action-decision reasons, and `run_episode`/`summarize_episodes` helpers. Both use Environment v1 reset, Action v1 masks, `step()`, Reward v1, and episode outcomes. The scripted baseline has transparent access to the structured snapshot for its simple rules; it remains an engineering comparison baseline, not a learned-policy input design.
 
-## Environment v1 freeze candidate
+## Environment v1
 
 `environment_contract()` exposes frozen checkpoint/evaluation metadata: Observation schema v1 and shape `(5534,)`, Action schema v1 and 541 actions, Environment schema v1, Reward schema v1, and transition schema v2. The public Environment v1 contract covers `EpisodeConfig`, `reset()`, lifecycle states, `step()` reconciliation, Reward v1 outcomes, JSONL transitions, and baseline evaluation.
 
@@ -121,7 +121,7 @@ It never infers active rows. For a known full board, provide `--all-rows`. Real 
 python tools/live_run_environment.py --all-rows --execute --policy heuristic --max-steps 10 --log-path trajectories/environment-v1.jsonl
 ```
 
-Prepare an unpaused level manually; the runner does not navigate menus or dialogs. Natural win/loss remains unavailable without a validated injected terminal detector, so the default live run ends at its configured max-step truncation. See [Phase 3 validation](docs/PHASE_3_VALIDATION.md) for the required live checklist. Phase 4 will begin deep-RL training only after Phase 3 receives this sign-off.
+Prepare an unpaused level manually; the runner does not navigate menus or dialogs. Environment v1 has been validated end-to-end against the real PvZ client with both heuristic and seeded random-valid-action baselines. The runs validated legal action selection, WAIT and PLANT reconciliation, transition logging, Reward v1 wave-progress shaping, and max-step truncation. Natural win/loss remains unavailable without a validated injected terminal detector, so the default live run ends at its configured max-step truncation. See [Phase 3 validation](docs/PHASE_3_VALIDATION.md) for recorded results.
 
 ## Repository layout
 
@@ -179,8 +179,8 @@ Files beginning with `tools/live_test_` intentionally interact with a running ga
 
 ## Next — Phase 4
 
-Phase 3 is pending final live sign-off with the checklist above. Once frozen,
-Phase 4 will add deep-RL training while preserving the Phase 1--3 contracts:
+Phase 3 is complete and Environment v1 is frozen. Phase 4 will add deep-RL
+training while preserving the Phase 1--3 contracts:
 
 1. deep-RL baseline design and implementation;
 2. checkpoint/run metadata using the Environment v1 contract helper;
