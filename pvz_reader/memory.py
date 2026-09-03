@@ -2,8 +2,24 @@ import pymem
 
 
 class MemoryReader:
-    def __init__(self, process_name: str):
-        self.pm = pymem.Pymem(process_name)
+    """Thin read-only process-memory wrapper.
+
+    ``process`` may be an executable name (the original API) or a PID.  PID
+    attachment lets the runtime bind reader and window discovery to the same
+    process without changing GameState v1 semantics.
+    """
+
+    def __init__(self, process: str | int):
+        self.pm = pymem.Pymem(process)
+
+    @property
+    def process_id(self) -> int:
+        return int(self.pm.process_id)
+
+    def close(self) -> None:
+        """Release the process handle; safe to call during runtime detach."""
+        if getattr(self.pm, "process_handle", None):
+            self.pm.close_process()
 
     def read_int(self, address: int) -> int:
         return self.pm.read_int(address)

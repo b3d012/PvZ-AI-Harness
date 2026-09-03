@@ -14,6 +14,8 @@ from pvz_controller.windows_input import (
     GameWindowUnavailable,
     MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP,
+    KEYEVENTF_KEYUP,
+    VK_ESCAPE,
     WindowsInputBackend,
     _Win32Api,
 )
@@ -29,8 +31,19 @@ class FakeWindowsApi:
         self.click_count = 0
         self.events = []
 
-    def find_main_window(self, _process_name):
+    def find_main_window(self, _process_name, process_id=None):
+        if process_id is not None and process_id != 42:
+            return None
         return self.hwnd
+
+    def is_window(self, hwnd):
+        return hwnd == self.hwnd
+
+    def window_process_id(self, _hwnd):
+        return 42
+
+    def window_title(self, _hwnd):
+        return "Plants vs. Zombies"
 
     def is_minimized(self, _hwnd):
         return self.minimized
@@ -52,6 +65,10 @@ class FakeWindowsApi:
     def send_left_click(self):
         self.events.append(("click",))
         self.click_count += 1
+        return True
+
+    def send_key_press(self, key):
+        self.events.append(("key", key))
         return True
 
 
@@ -111,6 +128,25 @@ class WindowsInputBackendTests(unittest.TestCase):
         self.assertFalse(backend.is_foreground())
         api.foreground = api.hwnd
         self.assertTrue(backend.is_foreground())
+
+    def test_pid_binding_rejects_window_from_another_process(self):
+        backend = WindowsInputBackend(api=FakeWindowsApi(), expected_process_id=99)
+        with self.assertRaises(GameWindowUnavailable):
+            backend.get_client_area()
+
+    def test_manual_focus_policy_refuses_input_without_moving_cursor(self):
+        api = FakeWindowsApi(foreground=999)
+        backend = WindowsInputBackend(api=api, auto_focus=False)
+        with self.assertRaisesRegex(Exception, "not foreground"):
+            backend.left_click(400, 300)
+        self.assertEqual(api.cursor_positions, [])
+        self.assertEqual(api.click_count, 0)
+
+    def test_escape_is_sent_only_to_verified_foreground_window(self):
+        api = FakeWindowsApi()
+        backend = WindowsInputBackend(api=api, expected_process_id=42)
+        backend.press_escape()
+        self.assertEqual(api.events, [("key", 27)])
 
 
 class Win32FocusTests(unittest.TestCase):
@@ -177,6 +213,25 @@ class Win32MouseInputTests(unittest.TestCase):
             captured[0][1],
             [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP],
         )
+
+    def test_escape_sends_one_key_down_and_one_key_up(self):
+        captured = []
+
+        class User32:
+            def SendInput(self, count, inputs, input_size):
+                captured.append((
+                    count,
+                    [(inputs[index].keyboard.virtual_key, inputs[index].keyboard.flags)
+                     for index in range(count)],
+                    input_size,
+                ))
+                return count
+
+        api = _Win32Api.__new__(_Win32Api)
+        api.user32 = User32()
+        self.assertTrue(api.send_key_press(VK_ESCAPE))
+        self.assertEqual(captured[0][0], 2)
+        self.assertEqual(captured[0][1], [(VK_ESCAPE, 0), (VK_ESCAPE, KEYEVENTF_KEYUP)])
 
 
 if __name__ == "__main__":
