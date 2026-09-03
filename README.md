@@ -2,38 +2,29 @@
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
-> **Current milestone: Phase 3 complete — Environment v1 frozen. Phase 4 deep reinforcement learning is next.**
+> **Current milestone: Runtime infrastructure implemented above the frozen Phase 1–3 contracts; dedicated live runtime validation remains. Phase 4 is next after sign-off.**
 
 ## Architecture
 
-```text
-Plants vs. Zombies GOTY
-        │ read-only process memory
-        ▼
-┌──────────────────────┐
-│     GameState v1     │
-│ plants / zombies     │
-│ seeds / waves / sun  │
-│ pickups / mowers ... │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│ EncodedObservation v1│
-│ fixed NumPy float32  │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│ Semantic Action v1  │
-│ + legality mask     │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│    Controller v1     │
-│ semantic actions     │
-│ normal Windows input │
-└──────────┬───────────┘
-           ▼
-Plants vs. Zombies GOTY
+```mermaid
+flowchart TD
+    PVZ[Plants vs. Zombies GOTY 1.2.0.1073]
+    S[PvZSession: PID-bound process, reader, and window]
+    P[GamePhaseDetector]
+    H[EnvironmentHealth / fail-closed watchdog]
+    R[PvZRuntime: focus, pause, actions, snapshots]
+    E[Frozen PvZEnvironment v1]
+    M[Runtime monitor]
+    AI[Future Phase 4 agent]
+    PVZ --> S
+    S --> P
+    S --> H
+    P --> R
+    H --> R
+    R -->|reader/controller adapters| E
+    R --> M
+    E --> AI
+    E -->|Controller v1 normal input| PVZ
 ```
 
 `PvZEnvironment` orchestrates the reader, encoded observation, Action v1 mask,
@@ -58,6 +49,7 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Placement layer | ✅ Complete | Special placement rules and invalid-action masks |
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
 | Phase 3 | ✅ Complete | Environment v1 frozen after offline and end-to-end live validation |
+| Runtime layer | 🚧 Live validation | PID-bound sessions, watchdog, focus policy, pause/resume, diagnostics, monitor |
 | Phase 4 | Planned | Deep-RL baselines and training |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
@@ -123,12 +115,71 @@ python tools/live_run_environment.py --all-rows --execute --policy heuristic --m
 
 Prepare an unpaused level manually; the runner does not navigate menus or dialogs. Environment v1 has been validated end-to-end against the real PvZ client with both heuristic and seeded random-valid-action baselines. The runs validated legal action selection, WAIT and PLANT reconciliation, transition logging, Reward v1 wave-progress shaping, and max-step truncation. Natural win/loss remains unavailable without a validated injected terminal detector, so the default live run ends at its configured max-step truncation. See [Phase 3 validation](docs/PHASE_3_VALIDATION.md) for recorded results.
 
+## Runtime infrastructure
+
+`pvz_runtime.PvZSession` automatically discovers a supported process, attaches
+the reader by PID, binds Controller window lookup to that same PID, detects
+stale attachments, and reconnects once per explicit health/read request after
+a game restart. `PvZRuntime` adds conservative phase detection, structured
+`EnvironmentHealth`, MANUAL/AUTO focus policy, idempotent verified pause/resume,
+a single gated semantic-action path, observer-only mode, and compact JSON
+diagnostic snapshots.
+
+The runtime is a backward-compatible layer beneath the frozen
+`pvz_env.PvZEnvironment`; it does not replace or version-bump Environment v1.
+Phase 4 can construct Environment v1 with runtime adapters:
+
+```python
+from pvz_env import EpisodeConfig, PvZEnvironment
+from pvz_runtime import FocusMode, PvZRuntime, RuntimeConfig
+
+runtime = PvZRuntime(config=RuntimeConfig(focus_mode=FocusMode.MANUAL))
+runtime.attach()
+environment = PvZEnvironment(runtime.reader_adapter(), runtime.controller_adapter())
+environment.reset(EpisodeConfig("level", active_rows=(True, True, True, True, True, False)))
+```
+
+Expected GOTY layout version is reported as `1.2.0.1073`, but exact binary
+fingerprinting is not available and the runtime does not claim otherwise.
+Because GameState v1 lacks authoritative application-screen and natural
+win/loss fields, a missing Board is conservatively `MENU_OR_TRANSITION`, while
+terminal phases require a separately validated injected provider.
+
+Launch the dependency-free Tk monitor:
+
+```powershell
+python tools/live_monitor_environment.py
+```
+
+Run the runtime live checklist in read-only mode first:
+
+```powershell
+python tools/live_test_runtime.py --snapshot snapshots/runtime.json
+```
+
+Focus and pause/resume input require explicit `--exercise-focus` and
+`--exercise-pause` flags plus interactive confirmation. See
+[Runtime architecture](docs/RUNTIME.md) and
+[runtime live validation](docs/LIVE_RUNTIME_VALIDATION.md).
+
+The read-only runtime path has been validated against a running client,
+including automatic PID discovery, PID-matched window binding, coherent Board
+observation, PAUSED classification, and the `can_observe`/`can_act` safety
+distinction. Restart recovery, focus-policy input, pause/resume input, and
+monitor controls remain on the dedicated live checklist.
+
+A live AUTO-focus attempt was denied by Windows and correctly failed closed:
+focus returned false, resume returned `FOCUS_FAILED`, no Escape transition was
+sent, and the original paused state was preserved. Successful focus and pause
+transitions remain to be validated interactively.
+
 ## Repository layout
 
 ```text
 pvz_reader/        GameState reader, version table, legality rules, diagnostics
 pvz_controller/    Semantic Controller v1 and Windows input backend
 pvz_env/           Observation, action, step, reward/outcome, logging, lifecycle, baselines, and frozen contract metadata
+pvz_runtime/       Session ownership, phase/health, focus/pause gating, diagnostics, and monitor
 tools/             Offline tests, live validation and inspection utilities
 docs/              Technical development report
 references/         pvztoolkit research-reference submodule
@@ -155,7 +206,7 @@ If cloned without submodules:
 git submodule update --init --recursive
 ```
 
-The Phase 1–2 environment is intentionally lean: `pymem`, `psutil`, and `numpy`. RL/deep-learning packages are added only when Phase 3/4 requires them.
+The environment remains intentionally lean: `pymem`, `psutil`, and `numpy`; the monitor uses Python's standard `tkinter`. RL/deep-learning packages are deferred to Phase 4.
 
 ## Validation
 
@@ -163,6 +214,7 @@ The offline suite does not require PvZ to be running and does not intentionally 
 
 ```powershell
 python -m unittest discover -s tools -p "test_*.py" -v
+python -m compileall -q pvz_reader pvz_controller pvz_env pvz_runtime tools
 ```
 
 It also runs automatically on Windows in GitHub Actions.
@@ -173,6 +225,7 @@ Files beginning with `tools/live_test_` intentionally interact with a running ga
 
 - game observation is read-only;
 - Controller v1 uses ordinary Windows mouse input;
+- runtime input is gated by process, PID-bound window, fresh Board state, phase, pause, and verified focus;
 - live tools are separated from offline tests;
 - proprietary game files, caches, research dumps, model checkpoints and datasets are ignored;
 - this repository does not distribute Plants vs. Zombies executables or assets.
@@ -180,13 +233,14 @@ Files beginning with `tools/live_test_` intentionally interact with a running ga
 ## Next — Phase 4
 
 Phase 3 is complete and Environment v1 is frozen. Phase 4 will add deep-RL
-training while preserving the Phase 1--3 contracts:
+training after the dedicated runtime live checklist is completed, while
+preserving the Phase 1--3 contracts:
 
 1. deep-RL baseline design and implementation;
 2. checkpoint/run metadata using the Environment v1 contract helper;
 3. evaluation against the frozen random and scripted baselines.
 
-Only after that environment is stable will the project introduce the first deep-RL baseline.
+The first deep-RL baseline remains out of scope for the runtime milestone.
 
 ## References
 

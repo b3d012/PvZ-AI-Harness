@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 complete — Environment v1 frozen**
-- Next milestone: **Phase 4 — deep reinforcement learning**
+- Current milestone: **Runtime infrastructure implemented above frozen Environment v1; live runtime validation pending**
+- Next milestone: **Phase 4 — deep reinforcement learning, after runtime sign-off**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -26,6 +26,18 @@ semantic Action v1 / legality masking
 semantic Controller v1
     ↓ normal Windows mouse input
 PvZ GOTY process
+```
+
+Runtime ownership is implemented in `pvz_runtime` beneath Environment v1:
+
+```text
+PvZSession (PID-bound process, MemoryReader, PvZ window)
+    ↓
+GamePhaseDetector + EnvironmentHealth
+    ↓
+PvZRuntime (focus/pause/watchdog/actions/snapshots)
+    ↓ reader/controller adapters
+frozen pvz_env.PvZEnvironment v1
 ```
 
 ## Frozen public contracts
@@ -76,6 +88,27 @@ If a Phase 4 task appears to require changing a frozen interface:
 - Normal gameplay actions use `pvz_controller` and standard Windows mouse input.
 - Do not replace Controller v1 with game-memory writes for ordinary agent actions.
 - Maintain the semantic-action abstraction: higher layers request actions such as plant/shovel/collect rather than raw screen clicks whenever practical.
+- New high-level live callers should use `PvZRuntime.execute()` so process,
+  reader, Board, phase, pause, window, focus, and freshness gates run before
+  Controller v1. The Environment v1 adapters use this same path.
+
+### Runtime infrastructure
+
+- `pvz_runtime.session.PvZSession` owns process discovery, PID attachment,
+  PID-bound window identity, process-death detection, controlled reattachment,
+  and clean detach.
+- `pvz_runtime.phase.GamePhaseDetector` is conservative. Frozen GameState v1
+  can distinguish Board presence, pause, and clock-derived READY/PLAYING, but
+  cannot authoritatively split menu/loading/results or detect natural win/loss.
+- `pvz_runtime.runtime.PvZRuntime` owns MANUAL/AUTO focus policy, state age,
+  health/watchdog evaluation, idempotent verified pause/resume, semantic action
+  gating, snapshots, and Environment v1 adapters.
+- MANUAL mode must never restore focus implicitly. AUTO mode may restore focus
+  only for the PID-bound window and must verify it is foreground before input.
+- Do not create alternate session/focus/pause logic in tools or UIs. The Tk
+  monitor is a frontend to the same runtime API.
+- Runtime operations are serialized. Do not add autonomous input loops or
+  uncontrolled reconnect polling.
 
 ### Live interaction
 
@@ -127,10 +160,13 @@ python -m unittest discover -s tools -p "test_*.py" -v
 Also compile the Python source tree when practical:
 
 ```powershell
-python -m compileall -q pvz_reader pvz_controller pvz_env tools
+python -m compileall -q pvz_reader pvz_controller pvz_env pvz_runtime tools
 ```
 
 For changes affecting live reader/controller behavior, also identify the relevant `tools/live_test_*` validation that should be run manually against the real game.
+
+Runtime changes use `tools/live_test_runtime.py`; the operator monitor is
+`tools/live_monitor_environment.py`. Both are live-only and excluded from CI.
 
 Do not claim a live validation passed unless it was actually run against the game.
 
@@ -344,8 +380,6 @@ Be explicit about what was **not** tested or not completed.
 
 ## Current handoff state
 
-As of the pre-Phase-3 repository stabilization:
-
 - Phase 1 reader is complete and `GameState v1` is frozen.
 - Placement legality/action masking is implemented and tested.
 - Phase 2 Controller v1 is complete and frozen.
@@ -354,4 +388,7 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Phase 3 is complete; the next implementation work may begin with Phase 4 deep reinforcement learning while preserving frozen contracts.**
+- **Phase 3 is complete and its contracts remain frozen.**
+- Runtime session/watchdog/focus/pause infrastructure is implemented in
+  `pvz_runtime`; its dedicated live checklist remains to be recorded before
+  beginning Phase 4.

@@ -1,0 +1,125 @@
+# PvZ runtime infrastructure
+
+`pvz_runtime` is the fail-closed operating layer beneath frozen Environment v1.
+It centralizes process ownership, PID-bound window discovery, observation
+health, focus policy, semantic pause control, and Controller v1 action gating.
+It does not change Observation v1, Action v1, Reward v1, transition schema v2,
+or the Environment v1 step/lifecycle contract.
+
+## Ownership and composition
+
+```text
+PvZ GOTY process
+  ├─ PvZSession ── PID-bound MemoryReader ── PvZGameStateReader
+  └─ WindowsInputBackend ── same PID's verified HWND ── Controller v1
+                 │
+       GamePhaseDetector + EnvironmentHealth
+                 │
+              PvZRuntime
+          ┌──────┴────────┐
+   runtime monitor   Environment v1 adapters
+```
+
+- `PvZSession` discovers a supported executable, attaches by PID, binds window
+  lookup to that PID, owns the memory handle, detects process death, and makes
+  one controlled reconnect attempt per `ensure_attached()` call.
+- `GamePhaseDetector` conservatively derives semantic phase from process,
+  reader, Board, `paused`, and `game_clock` evidence.
+- `PvZRuntime` serializes observation, focus, pause, reattach, and action
+  operations with one reentrant lock. It owns cached-state age and fail-closed
+  action checks.
+- `EnvironmentHealth` distinguishes `can_observe` from `can_act` and carries
+  machine-readable diagnostic reasons.
+- `RuntimeReaderAdapter` and `RuntimePlantControllerAdapter` place these gates
+  beneath the existing `pvz_env.PvZEnvironment` without changing its API.
+
+## Session and version confidence
+
+Supported process names are `PlantsVsZombies.exe` and `popcapgame1.exe`.
+Process discovery validates the executable basename when an executable path is
+available. Window enumeration then requires both a supported process name and
+the exact attached PID, preventing a controller from drifting to another
+same-named process after a restart.
+
+The reader layout remains pinned to GOTY `1.2.0.1073`. There is no authoritative
+binary fingerprint in the repository, so `SessionStatus.version_verified` is
+deliberately `False`; the status reports the expected version without claiming
+cryptographic verification. Reader failures invalidate and close the current
+attachment. A later call may discover a replacement PID.
+
+## Phase semantics
+
+`GamePhase` values are:
+
+- `DISCONNECTED`: no live attached process;
+- `MENU_OR_TRANSITION`: process and reader are valid but no Board exists;
+- `READY`: a coherent Board exists and `game_clock <= 0`;
+- `PLAYING`: a coherent unpaused Board exists and `game_clock > 0`;
+- `PAUSED`: frozen GameState v1 reports `paused=True`;
+- `LEVEL_WON` / `LEVEL_LOST`: only available through an explicitly supplied,
+  independently validated terminal-phase provider;
+- `UNKNOWN`: reader evidence is invalid or incomplete.
+
+GameState v1 has no authoritative application-screen, loading, seed-selection,
+win, or loss field. The runtime therefore does not pretend to separate menus
+from loading/results when the Board is absent. Missing-board display changes
+are minimally debounced, while `EnvironmentHealth.board_valid` becomes false
+immediately so actions still fail closed.
+
+## Focus and action safety
+
+`FocusMode.MANUAL` requires the verified PID-bound window already to be
+foreground. Both the runtime gate and the input backend refuse input if focus
+is absent or is lost in the final race before input. `FocusMode.AUTO` may ask
+Windows to focus the bound HWND, but foreground identity is checked afterward.
+Failure prevents Controller v1 from being called.
+
+`PvZRuntime.execute()` performs this sequence under one lock:
+
+1. ensure the process attachment is current;
+2. take a fresh reader observation;
+3. validate process, reader, Board, window, PLAYING phase, pause, and state age;
+4. satisfy and verify the configured focus policy;
+5. re-observe and repeat the state gates after the focus operation;
+6. dispatch one semantic Controller v1 action;
+7. return `RuntimeActionResult` with a typed status and the original
+   `ActionResult`, when Controller v1 was reached.
+
+Observer-only mode keeps observation and snapshots available while refusing
+all input with `ACTIONS_DISABLED`.
+
+## Pause and resume
+
+`pause()`, `resume()`, and `set_paused(bool)` are idempotent. They read the
+current Board first and do nothing when it already has the requested value.
+Otherwise the focus policy is satisfied, exactly one Escape press is sent to
+the verified foreground window, and read-only observations poll for the
+requested `GameState.paused` value within configurable bounds. Failure is
+reported as a typed `PauseResult`; Escape is never repeatedly toggled.
+
+## Environment v1 integration
+
+```python
+from pvz_env import EpisodeConfig, PvZEnvironment
+from pvz_runtime import FocusMode, PvZRuntime, RuntimeConfig
+
+runtime = PvZRuntime(config=RuntimeConfig(focus_mode=FocusMode.MANUAL))
+runtime.attach()
+
+environment = PvZEnvironment(
+    runtime.reader_adapter(),
+    runtime.controller_adapter(),
+)
+environment.reset(EpisodeConfig("manual-level", active_rows=(True,) * 5 + (False,)))
+```
+
+The adapters intentionally add no alternate reward, observation, action, or
+episode semantics. Future Phase 4 code can continue consuming Environment v1.
+
+## Concurrency
+
+The runtime does not start autonomous pollers. Its one reentrant lock prevents
+reattach, observation, pause, focus, and action operations from racing. The Tk
+monitor owns one worker thread so process reads do not block GUI repainting;
+all monitor controls delegate to the same serialized runtime methods. Closing
+the monitor stops its executor and detaches the runtime.

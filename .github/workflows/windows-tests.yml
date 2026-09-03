@@ -32,7 +32,7 @@ jobs:
 
       - name: Compile Python sources
         shell: pwsh
-        run: python -m compileall -q pvz_reader pvz_controller tools
+        run: python -m compileall -q pvz_reader pvz_controller pvz_env pvz_runtime tools
 
       - name: Run offline test suite
         shell: pwsh

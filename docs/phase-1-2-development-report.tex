@@ -29,11 +29,11 @@
 \setlist[itemize]{topsep=3pt,itemsep=2pt}
 \title{\textbf{Plants vs. Zombies Deep Learning}\\\large Technical Development Report}
 \author{b3d012}
-\date{2 September 2026}
+\date{4 September 2026}
 \begin{document}
 \maketitle
 \begin{abstract}
-This report documents the engineering work completed before the machine-learning phase of the \emph{Plants vs. Zombies Deep Learning} project. The project interfaces with the original Windows \emph{Plants vs. Zombies: Game of the Year Edition} process: a read-only memory subsystem reconstructs a structured game state, a placement subsystem converts that state into semantic legality information, and a controller performs ordinary Windows mouse input. Phases 1--3 establish the sensing, actuation, and Environment v1 foundation required by future learning experiments. The report records the research path, reverse-engineering methodology, versioned interfaces, validation methods, known limitations, and the transition to Phase 4.
+This report documents the engineering work completed before the machine-learning phase of the \emph{Plants vs. Zombies Deep Learning} project. The project interfaces with the original Windows \emph{Plants vs. Zombies: Game of the Year Edition} process: a read-only memory subsystem reconstructs a structured game state, a placement subsystem converts that state into semantic legality information, and a controller performs ordinary Windows mouse input. Phases 1--3 establish the sensing, actuation, and Environment v1 foundation required by future learning experiments. A subsequent production-runtime layer adds process and window lifecycle ownership, conservative phase/health detection, focus and pause policy, fail-closed action gating, and operator diagnostics without revising the frozen contracts. The report records the research path, reverse-engineering methodology, versioned interfaces, validation methods, known limitations, and the transition to Phase 4.
 \end{abstract}
 \tableofcontents
 \newpage
@@ -176,8 +176,63 @@ The initial live investigation exposed a reconciliation race: the game accepted 
 \subsection{Known limitations and transition to Phase 4}
 Environment v1 deliberately has no automated reset or pickup collection, no authoritative natural terminal detector, no Gymnasium adapter, and no learned model. Manual level preparation and explicit active rows are required for live episodes. Natural win/loss remains unvalidated because GameState v1 has no authoritative detector; the live runs therefore use configured max-step truncation. These limitations are documented constraints rather than hidden heuristics. Phase 4 may introduce deep reinforcement-learning experiments only while preserving the frozen Phase 1--3 public contracts or explicitly versioning any justified change.
 
+\section{Production Runtime Infrastructure}
+\subsection{Motivation and requirements}
+Environment v1 provides a deterministic strategic step contract, but long-running training and operator tooling also require ownership of operating-system state that does not belong in GameState: process lifetime, PID changes, window identity, foreground policy, attachment health, and safe pause control. The runtime milestone therefore establishes a production boundary beneath Environment v1. Its priorities are fail-closed input, backward compatibility, explicit diagnostics, controlled recovery, and dependency-light operation. It does not add rewards, menu automation, a Gymnasium API, or learned behavior.
+
+\subsection{Architecture and compatibility boundary}
+The new \texttt{pvz\_runtime} package contains three layers. \texttt{PvZSession} owns the PID-bound process, memory reader, game-state reader, and matching window. \texttt{GamePhaseDetector} and \texttt{EnvironmentHealth} interpret conservative state and safety evidence. \texttt{PvZRuntime} serializes observation and control, applies the watchdog, and delegates accepted semantic actions to Controller v1. Reader and plant-controller adapters place this infrastructure beneath the existing \texttt{pvz\_env.PvZEnvironment}. This composition preserves GameState v1, Controller v1, Observation v1, Action v1, Environment v1, Reward v1, and Transition schema v2.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Component & Responsibility \\
+\midrule
+\texttt{PvZSession} & process discovery, PID attachment, window binding, detach/reattach \\
+\texttt{GamePhaseDetector} & conservative semantic phase from validated evidence \\
+\texttt{EnvironmentHealth} & separate observation and action readiness with reasons \\
+\texttt{PvZRuntime} & focus, pause, freshness, watchdog, action dispatch, snapshots \\
+Runtime monitor & operator frontend using the same runtime methods \\
+Environment adapters & backward-compatible integration beneath Environment v1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Session management and process discovery}
+Process discovery accepts only the supported \texttt{PlantsVsZombies.exe} and \texttt{popcapgame1.exe} names and, where available, validates the executable-path basename. Memory attachment is performed by PID rather than by a second independent name lookup. The session owns and closes the memory handle. Each \texttt{ensure\_attached()} call performs at most one recovery attempt: a dead PID invalidates the old reader, releases its handle, discovers the replacement process, and increments a connection generation. There is no unbounded internal reconnect loop.
+
+\subsection{Window discovery and version confidence}
+The Windows backend now binds enumeration to both supported executable name and the session's exact PID. This prevents controller targeting from drifting to another same-named process during restart races. Window validity includes existence, non-minimized state, usable client dimensions, and PID agreement. The runtime reports the expected GOTY layout \texttt{1.2.0.1073}; because the repository has no authoritative executable fingerprint, \texttt{version\_verified} deliberately remains false. Coherent Board reads provide useful operational evidence but are not presented as binary-version proof.
+
+\subsection{Focus policy and action gating}
+\texttt{FocusMode.MANUAL} requires the PID-bound game window already to be foreground. The runtime refuses an unfocused request, and the input backend independently refuses if focus is lost in the final race before input. \texttt{FocusMode.AUTO} may request foreground activation, but it verifies the actual foreground HWND afterward. Every semantic action is serialized and passes process, reader, Board, state-age, phase, pause, window, and focus gates. Focus is followed by a fresh observation and a second state-gate pass before Controller v1 dispatch. Expected failures return a typed \texttt{RuntimeActionStatus}; Controller v1 results are retained when dispatch occurs.
+
+\subsection{Pause and resume semantics}
+\texttt{pause()}, \texttt{resume()}, and \texttt{set\_paused(bool)} are idempotent. The current GameState pause flag is read first; a matching state produces no input. A required transition satisfies the configured focus policy, sends exactly one Escape press to the verified foreground PvZ window, and polls read-only state within explicit timeout and interval bounds. The Escape key is never repeatedly toggled. Results distinguish an already satisfied request, a verified change, missing state, focus failure, input failure, and transition timeout.
+
+\subsection{Game-phase detection}
+Phase classification uses only process liveness, reader validity, Board presence, \texttt{GameState.paused}, and \texttt{game\_clock}. A coherent Board at clock zero is \texttt{READY}; a later unpaused Board is \texttt{PLAYING}; and the validated pause flag produces \texttt{PAUSED}. With no Board, current evidence cannot reliably distinguish menu, loading, seed selection, result screens, or short transitions, so the honest phase is \texttt{MENU\_OR\_TRANSITION}. Invalid/incomplete evidence is \texttt{UNKNOWN}. Missing-Board display transitions are minimally debounced, while Board health fails on the first missing read. Natural \texttt{LEVEL\_WON} and \texttt{LEVEL\_LOST} values require an independently validated injected provider because frozen GameState v1 has no authoritative terminal field.
+
+\subsection{Watchdog and stale-state protection}
+\texttt{EnvironmentHealth} reports process, window, focus, reader attachment, reader validity, controller readiness, Board validity, phase, state age, focus mode, and diagnostic reasons. \texttt{can\_observe} requires a current live attachment, valid reader, Board, and non-stale state. \texttt{can\_act} additionally requires the \texttt{PLAYING} phase, a usable PID-bound window, controller readiness, focus satisfiable under policy, and non-observer mode. \texttt{READY} remains observable but is deliberately not actionable because a clock-zero Board can still be transitional. A fresh read is mandatory for each action, and an observer-only configuration makes all input unavailable while retaining diagnostics.
+
+\subsection{Snapshots, logging, and monitor}
+Runtime events use Python's standard \texttt{logging} package at informative levels without logging every successful read. \texttt{RuntimeSnapshot.to\_dict()} produces compact JSON-compatible process/window identity, health, phase, level, scene, clock, pause, sun, wave, and entity-count data plus the most recent action/error. It excludes raw entity arrays and unrelated machine information.
+
+The dependency-light Tk monitor displays connection, PID, window title, focus and focus mode, reader/controller/Board readiness, phase, Adventure level, wave, pause, sun, entity counts, state age, and recent diagnostics. Focus, Pause, Resume, Refresh/Reattach, Snapshot, and Detach controls all invoke \texttt{PvZRuntime}; the UI contains no duplicate controller logic. One worker thread prevents memory/process polling from blocking repainting, while the runtime lock serializes all operations and shutdown detaches cleanly.
+
+\subsection{Testing methodology and live validation}
+Offline tests inject process discovery, readers, clocks, sleepers, windows, and controllers. Coverage includes process absence, attachment, missing windows, process restart and PID replacement, stale-reader invalidation, detach, conservative phases and debounce, MANUAL/AUTO focus outcomes, Board/window/pause/observer watchdog refusals, stale-state reporting, idempotent pause/resume and timeout, typed controller rejection, snapshots, Environment v1 adapters, PID-bound window input, and monitor presentation without opening a GUI. The complete pre-existing reader, Controller v1, and Environment v1 suites remain part of the same Windows CI run.
+
+The existing Environment v1 gameplay path has already been validated against the real client. Dedicated runtime validation is intentionally separate: \texttt{tools/live\_test\_runtime.py} defaults to read-only diagnostics, requires explicit flags and interactive confirmation for focus or Escape input, and never plants, shovels, collects, or navigates menus. A read-only live pass automatically discovered the running process, bound the matching titled 800 by 600 window to the same PID, read a coherent Board, classified its paused state as \texttt{PAUSED}, and reported observation healthy while action remained unavailable because the client was paused and unfocused. No input was enabled. A subsequent AUTO-focus attempt was denied by Windows and correctly failed closed: focus returned false, resume returned \texttt{FOCUS\_FAILED}, no Escape transition occurred, repeated requests for the already-paused state returned \texttt{ALREADY\_SET}, and the initial state was preserved. This validates the live refusal path, not successful focus or pause transitions. \texttt{tools/live\_monitor\_environment.py} provides the operator monitor. Process restart, successful focus/pause transitions, and monitor controls must still be recorded against a live game before this runtime milestone receives full live sign-off.
+
+\subsection{Design tradeoffs, limitations, and Phase 4 readiness}
+The implementation favors a small synchronous core and one lock rather than an autonomous watchdog thread or asynchronous framework. Reconnection is demand-driven, avoiding runaway polling and orphan workers. Standard Tk and logging avoid new dependencies. The cost is that process recovery occurs on the next explicit operation rather than instantaneously.
+
+Known limitations are explicit: exact executable version is not fingerprinted; Board absence does not identify a specific application screen; natural win/loss still lacks validated evidence; Windows may deny foreground activation; menu navigation, seed selection, dialogue handling, pickup automation, and level restart remain outside scope. Subject to completing the dedicated live runtime checklist, Phase 4 can consume the frozen Environment v1 through runtime adapters without learning code knowing PIDs, handles, HWNDs, focus mechanics, pause toggles, memory addresses, or raw coordinates.
+
 \section{Historical Pre-Phase-3 Portfolio Work}
 Before training begins: remove/ignore the local game, generated caches and raw traces; consider purging the game from Git history; add a concise root README with architecture/status/setup/report link and a statement that game files are not included; add reproducible Python environment metadata; add Windows CI for non-live tests; and tag the cleaned Phase 2 milestone (for example \texttt{phase-2-controller-v1}).
 \section{Conclusion}
-Through Phase 3 the project has solved the integration problems that normally disappear behind a simulator: version-specific reverse engineering, precise structured observation, rule-aware invalid-action masking, safe actuation of a real desktop application, typed reward and lifecycle semantics, portable trajectory logging, and baseline evaluation validated against the real client. The resulting portfolio narrative is therefore \textbf{reverse engineering $\rightarrow$ structured state estimation $\rightarrow$ rules/action masking $\rightarrow$ safe control $\rightarrow$ Environment v1 $\rightarrow$ learned strategy}. With Environment v1 frozen and live validation recorded, Phase 4 can concentrate on learning experiments without reopening the frozen foundations.
+Through Phase 3 and the production-runtime milestone, the project has solved the integration problems that normally disappear behind a simulator: version-specific reverse engineering, precise structured observation, rule-aware invalid-action masking, safe actuation of a real desktop application, typed reward and lifecycle semantics, portable trajectory logging, baseline evaluation against the real client, process/window lifecycle management, and fail-closed runtime control. The resulting portfolio narrative is therefore \textbf{reverse engineering $\rightarrow$ structured state estimation $\rightarrow$ rules/action masking $\rightarrow$ safe control $\rightarrow$ Environment v1 $\rightarrow$ managed runtime $\rightarrow$ learned strategy}. After the dedicated runtime live checklist is recorded, Phase 4 can concentrate on learning experiments without exposing model code to process IDs, Windows handles, focus mechanics, or memory-reader lifecycle.
 \end{document}
