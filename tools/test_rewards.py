@@ -47,7 +47,8 @@ class Detector:
 class RewardTests(unittest.TestCase):
     def env(self, *states, **kwargs):
         episode_kwargs = {name: kwargs.pop(name) for name in tuple(kwargs) if name in {
-            "reward_spec", "terminal_detector", "max_steps", "max_consecutive_state_unavailable"}}
+            "reward_spec", "terminal_detector", "max_steps", "max_consecutive_state_unavailable",
+            "plant_reconciliation_timeout_seconds", "plant_reconciliation_poll_interval_seconds"}}
         env = PvZEnvironment(Reader(states[0], *states), Controller(kwargs.pop("controller_result", ActionResult(True, None, "ok"))),
             sleeper=lambda _: None, clock=lambda: 1.0, **kwargs)
         env.reset(EpisodeConfig("reward-test", **episode_kwargs))
@@ -82,7 +83,7 @@ class RewardTests(unittest.TestCase):
         rejected = self.env(state()).step(ACTION_COUNT).outcome
         masked = self.env(state(seeds=False)).step(self.plant_index()).outcome
         controller = self.env(state(), state(), controller_result=ActionResult(False, False, "failed")).step(self.plant_index()).outcome
-        missing = self.env(state(), state()).step(self.plant_index()).outcome
+        missing = self.env(state(), state(), plant_reconciliation_timeout_seconds=0).step(self.plant_index()).outcome
         unavailable_env = PvZEnvironment(Reader(state(), None), Controller(), sleeper=lambda _: None, clock=lambda: 1.0)
         unavailable_env.reset(EpisodeConfig("unavailable"))
         unavailable = unavailable_env.step(0).outcome

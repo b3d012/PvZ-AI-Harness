@@ -216,7 +216,11 @@ Recommended sequence:
   explicit injected step interval, and a post-interval read.
 - `StepResult` provides typed before/after snapshots, semantic action,
   controller result, stable rejection reason, reconciliation status, timing,
-  and an optional backwards-compatible Reward v1 outcome.
+  and an optional backwards-compatible Reward v1 outcome. A legal action
+  advances once for `step_interval_seconds`; an issued PLANT may then use
+  episode-configured bounded read-only polling to verify its postcondition.
+  This is not an additional strategic step and never reissues controller input;
+  WAIT has no reconciliation polling.
 - The environment owns immutable explicit `active_rows` episode configuration
   and passes it into every Action v1 mask build. Pickup collection remains
   deferred; no environment-managed clicks occur in Phase 3.3.

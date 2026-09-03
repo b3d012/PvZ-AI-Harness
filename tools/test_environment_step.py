@@ -88,6 +88,19 @@ class FakeClock:
         return result
 
 
+class ControlledClock:
+    """Clock advanced only by the injected sleeper, for bounded polling checks."""
+
+    def __init__(self):
+        self.value = 0.0
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, seconds):
+        self.value += seconds
+
+
 class EnvironmentStepTests(unittest.TestCase):
     def make_env(self, *states, controller=None, active_rows=None, interval=0.5, **episode_kwargs):
         self.sleeps = []
@@ -117,6 +130,10 @@ class EnvironmentStepTests(unittest.TestCase):
             EnvironmentConfig(active_rows=(True,) * 5)
         with self.assertRaises(ValueError):
             EnvironmentConfig(step_interval_seconds=-0.1)
+        with self.assertRaises(ValueError):
+            EnvironmentConfig(plant_reconciliation_timeout_seconds=-0.1)
+        with self.assertRaises(ValueError):
+            EnvironmentConfig(plant_reconciliation_poll_interval_seconds=0)
 
     def test_active_rows_propagate_to_observation_mask(self):
         env = self.make_env(state(), active_rows=(False, True, True, True, False, False))
@@ -159,6 +176,7 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertEqual(self.controller.calls, [(before, 0, 2, 4)])
         self.assertEqual(self.sleeps, [0.5])
         self.assertEqual(result.reconciliation, ReconciliationStatus.PLANT_OBSERVED)
+        self.assertEqual(result.timing.reconciliation_poll_count, 0)
         self.assertTrue(result.action_legal)
         self.assertIsNotNone(result.controller_result)
         self.assertEqual(result.after.action_mask.shape, (ACTION_COUNT,))
@@ -195,13 +213,74 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertEqual(self.controller.calls, [])
         self.assertEqual(self.sleeps, [])
 
-    def test_missing_plant_postcondition_is_not_controller_failure(self):
+    def test_unavailable_during_plant_polling_is_not_controller_failure(self):
         env = self.make_env(state(), state())
 
         result = env.step(self.plant_index())
 
         self.assertTrue(result.controller_result.attempted)
+        self.assertEqual(result.reconciliation, ReconciliationStatus.POSTCONDITION_UNAVAILABLE)
+
+    def make_polling_env(self, *states, timeout=0.15, poll_interval=0.05):
+        self.poll_sleeps = []
+        self.poll_clock = ControlledClock()
+
+        def sleeper(seconds):
+            self.poll_sleeps.append(seconds)
+            self.poll_clock.advance(seconds)
+
+        self.reader = FakeReader(states[0], *states)
+        self.controller = FakeController()
+        env = PvZEnvironment(self.reader, self.controller, sleeper=sleeper, clock=self.poll_clock)
+        env.reset(EpisodeConfig(
+            "polling-test", step_interval_seconds=0.5,
+            plant_reconciliation_timeout_seconds=timeout,
+            plant_reconciliation_poll_interval_seconds=poll_interval,
+        ))
+        return env
+
+    def test_plant_missing_initially_appears_on_first_poll(self):
+        before, initial_after, confirmed = state(), state(), state(plants=[plant()])
+        result = self.make_polling_env(before, initial_after, confirmed).step(self.plant_index())
+
+        self.assertEqual(result.reconciliation, ReconciliationStatus.PLANT_OBSERVED)
+        self.assertIs(result.after.state, confirmed)
+        self.assertEqual(result.timing.reconciliation_poll_count, 1)
+        self.assertEqual(result.timing.reconciliation_wait_seconds, 0.05)
+        self.assertEqual(self.poll_sleeps, [0.5, 0.05])
+        self.assertEqual(len(self.controller.calls), 1)
+
+    def test_plant_appears_after_multiple_polls(self):
+        before, initial_after, first_poll, confirmed = state(), state(), state(), state(plants=[plant()])
+        result = self.make_polling_env(before, initial_after, first_poll, confirmed).step(self.plant_index())
+
+        self.assertEqual(result.reconciliation, ReconciliationStatus.PLANT_OBSERVED)
+        self.assertIs(result.after.state, confirmed)
+        self.assertEqual(result.timing.reconciliation_poll_count, 2)
+        self.assertEqual(result.timing.reconciliation_wait_seconds, 0.1)
+        self.assertEqual(len(self.controller.calls), 1)
+
+    def test_plant_polling_times_out_deterministically(self):
+        before, initial_after, poll_one, poll_two, poll_three = state(), state(), state(), state(), state()
+        result = self.make_polling_env(
+            before, initial_after, poll_one, poll_two, poll_three, timeout=0.12, poll_interval=0.05,
+        ).step(self.plant_index())
+
         self.assertEqual(result.reconciliation, ReconciliationStatus.PLANT_NOT_OBSERVED)
+        self.assertIs(result.after.state, poll_three)
+        self.assertEqual(result.timing.reconciliation_poll_count, 3)
+        self.assertAlmostEqual(result.timing.reconciliation_wait_seconds, 0.12)
+        self.assertEqual(self.poll_sleeps[:3], [0.5, 0.05, 0.05])
+        self.assertAlmostEqual(self.poll_sleeps[3], 0.02)
+        self.assertEqual(len(self.controller.calls), 1)
+
+    def test_plant_polling_stops_on_unavailable_state(self):
+        result = self.make_polling_env(state(), state(), None).step(self.plant_index())
+
+        self.assertEqual(result.reconciliation, ReconciliationStatus.POSTCONDITION_UNAVAILABLE)
+        self.assertIsNone(result.after)
+        self.assertEqual(result.timing.reconciliation_poll_count, 1)
+        self.assertEqual(len(self.controller.calls), 1)
 
     def test_controller_failure_remains_distinct_from_postcondition_failure(self):
         controller = FakeController(ActionResult(False, False, "input_failed"))
@@ -212,6 +291,7 @@ class EnvironmentStepTests(unittest.TestCase):
         self.assertEqual(result.reconciliation, ReconciliationStatus.CONTROLLER_FAILED)
         self.assertEqual(result.controller_result.reason, "input_failed")
         self.assertIsNotNone(result.after)
+        self.assertEqual(result.timing.reconciliation_poll_count, 0)
 
     def test_reader_unavailable_has_typed_runtime_outcome(self):
         env = PvZEnvironment(FakeReader(None), FakeController())

@@ -85,6 +85,8 @@ def main() -> int:
             print(
                 f"action={decode_action(decision.action_index)} reason={decision.reason} "
                 f"reward={result.outcome.reward:.4f} reconciliation={result.reconciliation.value} "
+                f"reconciliation_polls={result.timing.reconciliation_poll_count} "
+                f"reconciliation_wait_seconds={result.timing.reconciliation_wait_seconds:.3f} "
                 f"outcome={None if result.outcome.reason is None else result.outcome.reason.value}"
             )
 
