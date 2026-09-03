@@ -129,10 +129,20 @@ class TransitionLoggingTests(unittest.TestCase):
 
         observed, missing, failed = sink.records
         self.assertEqual(observed.reconciliation, ReconciliationStatus.PLANT_OBSERVED.value)
-        self.assertEqual(missing.reconciliation, ReconciliationStatus.PLANT_NOT_OBSERVED.value)
+        self.assertEqual(missing.reconciliation, ReconciliationStatus.POSTCONDITION_UNAVAILABLE.value)
         self.assertEqual(failed.reconciliation, ReconciliationStatus.CONTROLLER_FAILED.value)
         self.assertEqual(failed.controller_result, {"attempted": False, "reason": "input_failed", "success": False})
         self.assertEqual(observed.action["action_type"], "plant")
+
+    def test_polled_plant_writes_one_record_with_confirming_after_state(self):
+        sink = CaptureSink()
+        before, initial_after, confirmed = game_state(), game_state(), game_state(plants=[plant()])
+        result = self.make_env(before, initial_after, confirmed, sink=sink).step(self.plant_index())
+
+        self.assertEqual(len(sink.records), 1)
+        self.assertEqual(result.reconciliation, ReconciliationStatus.PLANT_OBSERVED)
+        self.assertEqual(sink.records[0].after_state, confirmed.to_dict())
+        self.assertGreaterEqual(sink.records[0].timing["reconciliation_poll_count"], 0)
 
     def test_rejected_invalid_and_unavailable_records_are_preserved(self):
         sink = CaptureSink()

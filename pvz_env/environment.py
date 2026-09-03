@@ -68,6 +68,8 @@ class EnvironmentConfig:
 
     active_rows: tuple[bool, ...] = (True, True, True, True, True, True)
     step_interval_seconds: float = 0.25
+    plant_reconciliation_timeout_seconds: float = 0.75
+    plant_reconciliation_poll_interval_seconds: float = 0.05
     max_steps: int | None = None
     max_consecutive_state_unavailable: int | None = None
 
@@ -75,6 +77,10 @@ class EnvironmentConfig:
         object.__setattr__(self, "active_rows", normalize_active_rows(self.active_rows))
         if self.step_interval_seconds < 0:
             raise ValueError("step_interval_seconds must be non-negative")
+        if self.plant_reconciliation_timeout_seconds < 0:
+            raise ValueError("plant_reconciliation_timeout_seconds must be non-negative")
+        if self.plant_reconciliation_poll_interval_seconds <= 0:
+            raise ValueError("plant_reconciliation_poll_interval_seconds must be positive")
         if self.max_steps is not None and self.max_steps <= 0:
             raise ValueError("max_steps must be positive when configured")
         if self.max_consecutive_state_unavailable is not None and self.max_consecutive_state_unavailable <= 0:
@@ -98,6 +104,8 @@ class EpisodeConfig:
     episode_id: str
     active_rows: tuple[bool, ...] = (True, True, True, True, True, True)
     step_interval_seconds: float = 0.25
+    plant_reconciliation_timeout_seconds: float = 0.75
+    plant_reconciliation_poll_interval_seconds: float = 0.05
     max_steps: int | None = None
     max_consecutive_state_unavailable: int | None = None
     reward_spec: RewardSpec = field(default_factory=RewardSpec)
@@ -108,7 +116,14 @@ class EpisodeConfig:
         if not isinstance(self.episode_id, str) or not self.episode_id:
             raise ValueError("episode_id must be a non-empty string")
         object.__setattr__(self, "active_rows", normalize_active_rows(self.active_rows))
-        EnvironmentConfig(self.active_rows, self.step_interval_seconds, self.max_steps, self.max_consecutive_state_unavailable)
+        EnvironmentConfig(
+            active_rows=self.active_rows,
+            step_interval_seconds=self.step_interval_seconds,
+            plant_reconciliation_timeout_seconds=self.plant_reconciliation_timeout_seconds,
+            plant_reconciliation_poll_interval_seconds=self.plant_reconciliation_poll_interval_seconds,
+            max_steps=self.max_steps,
+            max_consecutive_state_unavailable=self.max_consecutive_state_unavailable,
+        )
         if not isinstance(self.reward_spec, RewardSpec):
             raise TypeError("reward_spec must be a RewardSpec")
         if self.metadata is not None and not isinstance(self.metadata, EpisodeMetadata):
@@ -133,12 +148,19 @@ class ObservationSnapshot:
 
 @dataclass(frozen=True)
 class StepTiming:
-    """Explicit timing metadata for a strategic action interval."""
+    """Timing for one strategic interval and any plant verification reads.
+
+    ``configured_interval_seconds`` is solely the agent-selected strategic
+    advancement.  Reconciliation fields describe bounded read-only verification
+    after a plant action; they do not represent extra agent steps.
+    """
 
     configured_interval_seconds: float
     started_at: float
     finished_at: float
     advancement_invoked: bool
+    reconciliation_poll_count: int = 0
+    reconciliation_wait_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -202,8 +224,10 @@ class ResetGamePaused(EnvironmentLifecycleError):
 class PvZEnvironment:
     """Library-independent bridge with explicit Phase 3.6 episode lifecycle.
 
-    ``WAIT`` and a legal ``PLANT`` each call the supplied sleeper exactly once
-    with ``step_interval_seconds`` before the post-step read.  Rejected actions
+    ``WAIT`` and a legal ``PLANT`` each advance once with
+    ``step_interval_seconds`` before the post-step read.  A plant that was
+    issued successfully may then use bounded read-only polling to verify its
+    postcondition; it never issues another controller action. Rejected actions
     never invoke the controller or sleeper.  No desktop interaction occurs
     unless a real Controller v1 instance is explicitly injected. When a
     transition sink is supplied, every active :meth:`step` emits exactly one
@@ -240,8 +264,12 @@ class PvZEnvironment:
         if not isinstance(episode_config, EpisodeConfig):
             raise TypeError("episode_config must be an EpisodeConfig")
         config = EnvironmentConfig(
-            episode_config.active_rows, episode_config.step_interval_seconds,
-            episode_config.max_steps, episode_config.max_consecutive_state_unavailable,
+            active_rows=episode_config.active_rows,
+            step_interval_seconds=episode_config.step_interval_seconds,
+            plant_reconciliation_timeout_seconds=episode_config.plant_reconciliation_timeout_seconds,
+            plant_reconciliation_poll_interval_seconds=episode_config.plant_reconciliation_poll_interval_seconds,
+            max_steps=episode_config.max_steps,
+            max_consecutive_state_unavailable=episode_config.max_consecutive_state_unavailable,
         )
         initial = self._read_snapshot(config)
         if initial is None:
@@ -309,9 +337,16 @@ class PvZEnvironment:
 
         self._sleeper(self.config.step_interval_seconds)
         after = self._read_snapshot(self.config)
+        poll_count = 0
+        reconciliation_wait_seconds = 0.0
+        if self._should_poll_plant(action, before.state, after, controller_result):
+            after, poll_count, reconciliation_wait_seconds = self._poll_plant_postcondition(
+                action, before.state, after
+            )
         finished_at = self._clock()
         timing = StepTiming(
-            self.config.step_interval_seconds, started_at, finished_at, True
+            self.config.step_interval_seconds, started_at, finished_at, True,
+            poll_count, reconciliation_wait_seconds,
         )
         reconciliation = self._reconcile(action, before.state, after, controller_result)
         return self._finalize(StepResult(
@@ -370,6 +405,41 @@ class PvZEnvironment:
             action_mask=build_action_mask(state, active_rows=config.active_rows),
         )
 
+    def _should_poll_plant(
+        self,
+        action: SemanticAction,
+        before_state: "GameState",
+        after: ObservationSnapshot | None,
+        controller_result: ActionResult | None,
+    ) -> bool:
+        """Return whether an issued plant has an unobserved, available result."""
+        if action.action_type is not ActionType.PLANT or after is None:
+            return False
+        if controller_result is None or not controller_result.attempted or controller_result.success is False:
+            return False
+        return not self._plant_is_observed(action, before_state, after)
+
+    def _poll_plant_postcondition(
+        self,
+        action: SemanticAction,
+        before_state: "GameState",
+        after: ObservationSnapshot,
+    ) -> tuple[ObservationSnapshot | None, int, float]:
+        """Read only until the plant appears, state disappears, or time expires."""
+        assert self.config is not None
+        poll_count = 0
+        wait_seconds = 0.0
+        while wait_seconds < self.config.plant_reconciliation_timeout_seconds:
+            remaining = self.config.plant_reconciliation_timeout_seconds - wait_seconds
+            wait = min(self.config.plant_reconciliation_poll_interval_seconds, remaining)
+            self._sleeper(wait)
+            wait_seconds += wait
+            poll_count += 1
+            after = self._read_snapshot(self.config)
+            if after is None or self._plant_is_observed(action, before_state, after):
+                return after, poll_count, wait_seconds
+        return after, poll_count, wait_seconds
+
     def _require_active(self, operation: str) -> None:
         if self.lifecycle is LifecycleState.UNINITIALIZED:
             raise EnvironmentLifecycleError(f"cannot {operation} before reset")
@@ -398,6 +468,13 @@ class PvZEnvironment:
         )
 
     @staticmethod
+    def _plant_is_observed(
+        action: SemanticAction, before_state: "GameState", after: ObservationSnapshot
+    ) -> bool:
+        seed = next(seed for seed in before_state.seeds if seed.slot == action.seed_slot)
+        return plant_was_placed(seed, action.row, action.col, after.state)
+
+    @staticmethod
     def _reconcile(
         action: SemanticAction,
         before_state: "GameState",
@@ -413,7 +490,6 @@ class PvZEnvironment:
         if after is None:
             return ReconciliationStatus.POSTCONDITION_UNAVAILABLE
 
-        seed = next(seed for seed in before_state.seeds if seed.slot == action.seed_slot)
-        if plant_was_placed(seed, action.row, action.col, after.state):
+        if PvZEnvironment._plant_is_observed(action, before_state, after):
             return ReconciliationStatus.PLANT_OBSERVED
         return ReconciliationStatus.PLANT_NOT_OBSERVED

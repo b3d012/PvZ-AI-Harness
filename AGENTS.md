@@ -7,8 +7,8 @@ These instructions are intended to keep future Codex/agent work consistent with 
 ## Project state
 
 - Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3 in progress — baseline policies and evaluation complete**
-- Next milestone: **Phase 3.8 — Environment v1 freeze**
+- Current milestone: **Phase 3 complete — Environment v1 frozen**
+- Next milestone: **Phase 4 — deep reinforcement learning**
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
@@ -28,7 +28,7 @@ semantic Controller v1
 PvZ GOTY process
 ```
 
-## Frozen Phase 1 / Phase 2 contracts
+## Frozen public contracts
 
 Treat the following as stable interfaces unless the user explicitly approves a breaking change:
 
@@ -37,15 +37,23 @@ Treat the following as stable interfaces unless the user explicitly approves a b
 - `pvz_reader/placement.py` as the source of deterministic placement legality/action masks
 - `Controller v1` public API
 - logical 800×600 controller coordinate model
+- `Observation v1` schema, shape `(5534,)`, normalization, and ordering
+- `Action v1` schema, 541-index WAIT/PLANT layout, and explicit active-row contract
+- Environment v1 reset/lifecycle/step/reconciliation contracts
+- Reward v1 schema and default `RewardSpec`
+- transition JSONL schema v2
+- baseline policy/evaluation API
 
 Do **not** casually redesign or merge these layers together during later phases.
 
-If a later task appears to require changing a frozen interface:
+If a Phase 4 task appears to require changing a frozen interface:
 
 1. stop before making the breaking change;
 2. explain why the current contract is insufficient;
 3. propose the smallest compatible change;
-4. wait for explicit approval if the change is architectural or breaks existing callers/tests.
+4. bump the applicable schema/version where appropriate and consider compatibility;
+5. update tests and the technical report;
+6. wait for explicit approval if the change is architectural or breaks existing callers/tests.
 
 ## Architectural rules
 
@@ -208,7 +216,11 @@ Recommended sequence:
   explicit injected step interval, and a post-interval read.
 - `StepResult` provides typed before/after snapshots, semantic action,
   controller result, stable rejection reason, reconciliation status, timing,
-  and an optional backwards-compatible Reward v1 outcome.
+  and an optional backwards-compatible Reward v1 outcome. A legal action
+  advances once for `step_interval_seconds`; an issued PLANT may then use
+  episode-configured bounded read-only polling to verify its postcondition.
+  This is not an additional strategic step and never reissues controller input;
+  WAIT has no reconciliation polling.
 - The environment owns immutable explicit `active_rows` episode configuration
   and passes it into every Action v1 mask build. Pickup collection remains
   deferred; no environment-managed clicks occur in Phase 3.3.
@@ -262,11 +274,17 @@ Recommended sequence:
   engineering baseline may inspect the current structured snapshot for simple
   economy/threat rules, but still relies on the Action v1 mask rather than
   reproducing placement legality; it is not an apples-to-apples neural-policy
-  architecture. No live baseline tool has been added or validated.
+  architecture. The explicit live runner completed heuristic and seeded
+  random-policy end-to-end validation against the real client.
 
 ### Phase 3.8 — Environment v1 freeze
 
-Freeze Phase 3 only when:
+✅ Complete: Environment v1 is frozen after offline validation and recorded
+end-to-end live validation against the real client. The frozen public
+contracts are Observation v1, Action v1, Environment v1, Reward v1, and
+transition JSONL schema v2.
+
+The completed freeze criteria were:
 
 - observation encoding is deterministic;
 - invalid actions are masked/rejected correctly;
@@ -275,6 +293,13 @@ Freeze Phase 3 only when:
 - episodes terminate/truncate predictably;
 - trajectories round-trip to disk;
 - repeated baseline runs do not corrupt the environment interface.
+
+`environment_contract()` exposes the frozen observation, action, environment,
+reward, and transition schema identifiers. `tools/live_run_environment.py` is
+dry-run by default, requires explicit active rows, and needs `--execute`
+before normal mouse input. Its completed validation record is in
+`docs/PHASE_3_VALIDATION.md`. Later breaking changes require explicit
+versioning and approval under the frozen-contract rules above.
 
 Only after this should the project move into the main deep-reinforcement-learning training phase.
 
@@ -329,4 +354,4 @@ As of the pre-Phase-3 repository stabilization:
 - Portfolio README exists.
 - reproducible environment files exist.
 - Windows offline CI exists and passes.
-- **Next implementation work should begin with Phase 3.8, not model training.**
+- **Phase 3 is complete; the next implementation work may begin with Phase 4 deep reinforcement learning while preserving frozen contracts.**

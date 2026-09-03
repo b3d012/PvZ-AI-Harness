@@ -21,19 +21,19 @@
 \pagestyle{fancy}
 \fancyhf{}
 \lhead{PvZ Deep Learning}
-\rhead{Development Report Through Phase 2}
+\rhead{Technical Development Report}
 \cfoot{\thepage}
 \titleformat{\section}{\Large\bfseries\color{pvzdark}}{\thesection}{0.7em}{}
 \titleformat{\subsection}{\large\bfseries\color{pvzgreen}}{\thesubsection}{0.7em}{}
 \lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codegray},frame=single,breaklines=true,columns=fullflexible}
 \setlist[itemize]{topsep=3pt,itemsep=2pt}
-\title{\textbf{Plants vs. Zombies Deep Learning}\\\large Development Report Through Phase 2}
+\title{\textbf{Plants vs. Zombies Deep Learning}\\\large Technical Development Report}
 \author{b3d012}
-\date{27 August 2026}
+\date{2 September 2026}
 \begin{document}
 \maketitle
 \begin{abstract}
-This report documents the engineering work completed before the machine-learning phase of the \emph{Plants vs. Zombies Deep Learning} project. The project interfaces with the original Windows \emph{Plants vs. Zombies: Game of the Year Edition} process: a read-only memory subsystem reconstructs a structured game state, a placement subsystem converts that state into semantic legality information, and a controller performs ordinary Windows mouse input. The work through Phase 2 establishes the sensing and actuation foundation required by a future learning environment. This report records the research path, reverse-engineering methodology, reference tooling, validated memory structures, schema design, controller design, tests, live validations, lessons learned, and the recommended transition into Phase 3.
+This report documents the engineering work completed before the machine-learning phase of the \emph{Plants vs. Zombies Deep Learning} project. The project interfaces with the original Windows \emph{Plants vs. Zombies: Game of the Year Edition} process: a read-only memory subsystem reconstructs a structured game state, a placement subsystem converts that state into semantic legality information, and a controller performs ordinary Windows mouse input. Phases 1--3 establish the sensing, actuation, and Environment v1 foundation required by future learning experiments. The report records the research path, reverse-engineering methodology, versioned interfaces, validation methods, known limitations, and the transition to Phase 4.
 \end{abstract}
 \tableofcontents
 \newpage
@@ -141,8 +141,43 @@ Persist timestamp, episode ID, raw state, encoded observation, mask, requested a
 Keep terminal win/loss dominant. Add only small, auditable shaping terms based on observed transitions (for example wave progress or immediate threat change) and test them for reward hacking.
 \subsection{Definition of done}
 Freeze Phase 3 when encoding and masks are deterministic, invalid actions are masked/rejected, action results reconcile with the next observation, step timing and terminal rules are documented, trajectories round-trip to disk, and a random/scripted baseline can run repeated steps or episodes without corrupting the interface. Only then move to the main learned policy, with PPO plus invalid-action masking a sensible first baseline.
-\section{Recommended Pre-Phase-3 Portfolio Work}
+\section{Phase 3: Environment v1}
+\subsection{Objective and boundary}
+Phase 3 converts the frozen reader and controller into a deterministic, library-independent reinforcement-learning environment bridge. It does not implement a learned policy, Gymnasium adapter, menu automation, or a game clone. The environment continues to observe the real target process read-only and requests normal Controller v1 mouse input only through semantic actions.
+
+\subsection{Observation v1}
+Observation v1 is a fixed \texttt{float32} vector of shape \texttt{(5534,)}. It preserves a separate raw \texttt{GameState v1} alongside encoded data. The representation includes normalized global and wave features, Adventure level, a six-by-nine plant map, ten seed-bank slots, mower state, and up to five closest-to-house zombie slots per lane. Bounded per-lane live and overflow aggregates retain information when more than five zombies are present. Pickups, projectiles, and grid items are deliberately deferred from the encoded vector; raw grid items still feed deterministic placement legality. Feature order, normalization, and schema version 1 are frozen.
+
+\subsection{Action v1 and deterministic legality}
+Action v1 contains 541 indices: \texttt{WAIT} at index zero and 540 \texttt{PLANT(seed\_slot,row,column)} actions in seed-slot, row, then column order. The action mask delegates every placement decision to the existing placement layer rather than asking a policy to rediscover terrain, occupancy, prerequisites, affordability, or cooldown rules. Frozen \texttt{GameState v1} does not authoritatively expose early-level inactive rows; each episode therefore supplies an explicit immutable six-boolean active-row configuration. Shovel and pickup actions remain deferred.
+
+\subsection{Environment v1 step and reconciliation contract}
+\texttt{PvZEnvironment} is constructed from reader, controller, encoder, timing, and persistence seams. An explicit \texttt{reset(EpisodeConfig)} adopts a manually prepared, available, unpaused game state and returns a raw snapshot, encoded observation, and action mask. The lifecycle is \texttt{UNINITIALIZED}, \texttt{ACTIVE}, \texttt{TERMINATED}, or \texttt{TRUNCATED}; no step is permitted before reset or after an outcome. A legal WAIT or PLANT advances once for the configured strategic interval and reads a post-step state. If an issued PLANT is not yet visible, the environment may take additional bounded, read-only reconciliation reads (0.75 seconds maximum at 0.05-second intervals by default); this verification window is explicitly separate from agent step advancement and never reissues input. WAIT still takes exactly one post-step read. \texttt{StepTiming} records reconciliation polls separately. Plant outcomes distinguish observed placement, controller failure, missing postcondition, and unavailable post-state. These seams make offline tests deterministic without desktop input.
+
+\subsection{Transition records and reward outcomes}
+Transition schema version 2 writes append-only UTF-8 JSONL records containing raw before/after state dictionaries, encoded arrays with dtype and shape, masks, action, controller result, reconciliation, timing, reward, terminal/truncation flags and reason, reward components, and reward schema/spec identity. Episode IDs and step indexes are reset-owned; rejected attempts are recorded and reset itself does not create a synthetic transition.
+
+Reward schema version 1 uses an inspectable frozen \texttt{RewardSpec}. A detected win receives +1.0 and a detected loss -1.0. The only positive shaping term is +0.01 per positive spawned-wave delta. Rejected actions and technical failures receive small diagnostic penalties; WAIT, successful planting, sun spending, and unchanged progress receive no activity reward. Terminal reward suppresses shaping. This delta-based design reduces obvious reward farming. Natural terminal outcomes remain separate from externally imposed truncations such as a maximum step horizon or repeated unavailable state. No authoritative win/loss signal exists in GameState v1, so a validated injected terminal detector is required; the default detector deliberately makes no guess.
+
+\subsection{Episode lifecycle and baselines}
+\texttt{EpisodeConfig} freezes episode identity, active rows, timing and truncation limits, Reward v1 configuration, optional detector, and caller-provided metadata. Reset is deliberately manual: the operator prepares the selected level; the environment never navigates menus, seed selection, dialogs, retries, or Adventure progression. A stateful detector may receive a reset callback. The same transition sink can span episodes while retaining distinct IDs and indexes starting at zero.
+
+The evaluation API provides a seeded random valid-action policy, a small scripted economy/threat policy, decision reasons, \texttt{run\_episode}, \texttt{EpisodeResult}, and deterministic multi-episode summaries. The random baseline uses the encoded observation and mask. The scripted baseline may inspect the current structured snapshot to select a legal Sunflower economy action or Peashooter in a threatened lane; it is an auditable engineering baseline rather than a neural-policy architecture. Both execute only Action v1 indices through Environment v1.
+
+\subsection{Frozen interface summary and validation}
+Environment v1 freezes Observation schema 1 and shape \texttt{(5534,)}, Action schema 1 and 541-action indexing, Environment schema 1, Reward schema 1 default weights, and Transition schema 2. The \texttt{environment\_contract()} helper returns this deterministic metadata for future checkpoints and evaluation artifacts. The Phase 3 offline suite runs on Windows CI and covers deterministic observation encoding, masks, controller seams, environment lifecycle, rewards, JSONL round trips, baselines, and frozen contract metadata.
+
+An explicit live tool, \texttt{tools/live\_run\_environment.py}, supports dry-run observation/mask/policy validation by default and requires \texttt{--execute} before it can issue normal mouse input. It requires explicit active rows and a bounded horizon. Dry-run validation confirmed reset, the \texttt{(5534,)} observation, the \texttt{(541,)} action mask, legal semantic action selection, and zero Controller input. JSONL round-trip validation preserved observation and mask shapes together with episode, step, reward, and truncation data.
+
+End-to-end validation against the real client then ran both the scripted heuristic and a seeded random-valid-action baseline for ten strategic steps on a normal five-row lawn. Each run executed eight WAIT actions and two PLANT actions, reached the configured \texttt{MAX\_STEPS} truncation, and sent no rejected or masked action to the Controller. In each run, an initial transient Windows focus failure was correctly surfaced as \texttt{CONTROLLER\_FAILED}; the following legal Sunflower action reconciled as \texttt{PLANT\_OBSERVED}. The remaining WAIT actions reconciled as \texttt{WAIT\_ADVANCED}. The heuristic run recorded cumulative reward $-0.005$; the seeded random run recorded $+0.005$, including one $+0.01$ Reward v1 wave-progress transition. Transition logging was validated throughout. Inactive-row blocking remains a deterministic offline regression test rather than a deliberately forced live click.
+
+The initial live investigation exposed a reconciliation race: the game accepted a legal plant (as indicated by sun expenditure) before the first post-step snapshot made it visible, yielding false \texttt{PLANT\_NOT\_OBSERVED} results. Environment v1 was corrected with bounded, read-only postcondition polling after the one configured strategic advance. Both post-fix live runs recorded zero \texttt{PLANT\_NOT\_OBSERVED} outcomes. The observed focus failure is an explicit desktop/controller runtime condition, not a policy or environment correctness failure. Generated logs and trajectories are ignored.
+
+\subsection{Known limitations and transition to Phase 4}
+Environment v1 deliberately has no automated reset or pickup collection, no authoritative natural terminal detector, no Gymnasium adapter, and no learned model. Manual level preparation and explicit active rows are required for live episodes. Natural win/loss remains unvalidated because GameState v1 has no authoritative detector; the live runs therefore use configured max-step truncation. These limitations are documented constraints rather than hidden heuristics. Phase 4 may introduce deep reinforcement-learning experiments only while preserving the frozen Phase 1--3 public contracts or explicitly versioning any justified change.
+
+\section{Historical Pre-Phase-3 Portfolio Work}
 Before training begins: remove/ignore the local game, generated caches and raw traces; consider purging the game from Git history; add a concise root README with architecture/status/setup/report link and a statement that game files are not included; add reproducible Python environment metadata; add Windows CI for non-live tests; and tag the cleaned Phase 2 milestone (for example \texttt{phase-2-controller-v1}).
 \section{Conclusion}
-Through Phase 2 the project has solved the integration problems that normally disappear behind a simulator: version-specific reverse engineering, precise structured observation, rule-aware invalid-action masking, safe actuation of a real desktop application, and postcondition validation. The resulting portfolio narrative is therefore \textbf{reverse engineering $\rightarrow$ structured state estimation $\rightarrow$ rules/action masking $\rightarrow$ safe control $\rightarrow$ RL environment $\rightarrow$ learned strategy}. Phase 3 can now concentrate on the machine-learning environment and data pipeline without reopening the foundations.
+Through Phase 3 the project has solved the integration problems that normally disappear behind a simulator: version-specific reverse engineering, precise structured observation, rule-aware invalid-action masking, safe actuation of a real desktop application, typed reward and lifecycle semantics, portable trajectory logging, and baseline evaluation validated against the real client. The resulting portfolio narrative is therefore \textbf{reverse engineering $\rightarrow$ structured state estimation $\rightarrow$ rules/action masking $\rightarrow$ safe control $\rightarrow$ Environment v1 $\rightarrow$ learned strategy}. With Environment v1 frozen and live validation recorded, Phase 4 can concentrate on learning experiments without reopening the frozen foundations.
 \end{document}
