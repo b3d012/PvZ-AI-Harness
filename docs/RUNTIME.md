@@ -135,6 +135,29 @@ environment.reset(EpisodeConfig("manual-level", active_rows=(True,) * 5 + (False
 The adapters intentionally add no alternate reward, observation, action, or
 episode semantics. Future Phase 4 code can continue consuming Environment v1.
 
+## Phase 4 training lifecycle candidate
+
+`GameOutcome` is kept separate from GameState v1. `OutcomeEvidence` reads the
+supported layout's application scene, application Board result, and Board
+level-complete flag. A live Board completion flag yields `WON`; the
+zombies-won application scene yields `LOST`; and the application result
+preserves terminal evidence after Board teardown. A live playing Board takes
+precedence over a retained prior result. Other transitions remain `UNKNOWN`.
+The offsets and mapping have offline coverage but require the dedicated
+real-client protocol before release.
+
+`TrainingEpisodeSupport` composes outcome, reset verification, and managed
+pickups without ML dependencies. Its default restart driver fails closed. An
+injected driver may request restart, but `RESET_OK` additionally requires a
+different Board address, expected Adventure level and optional seed types, an
+unpaused near-initial clock, observable health, and normally empty plant and
+zombie sets.
+
+`ManagedPickupCollector.collect_once()` is synchronous and calls only
+`PvZRuntime.execute(COLLECT_PICKUP)` under `run_serialized()`. Pending pickup
+identities suppress duplicates; disappearance confirms collection. Metrics are
+diagnostics, not reward terms. No background clicking thread exists.
+
 ## Concurrency
 
 The runtime does not start autonomous pollers. Its one reentrant lock prevents

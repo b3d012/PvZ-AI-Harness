@@ -405,3 +405,9 @@ Be explicit about what was **not** tested or not completed.
   behavior, and restart/reattach. Phase 4 builds training above the harness;
   it must not absorb runtime safety, UI monitor, or training configuration into
   frozen reader/controller/environment/runtime layers.
+
+An unreleased `feat/phase4-training-support` branch contains the narrow
+terminal/reset/pickup lifecycle candidate for issue #16. Do not merge or tag it
+until the documented real RUNNING/WON/LOST, repeated reset, and falling-sun
+pickup protocols pass against GOTY 1.2.0.1073. The default restart driver must
+remain fail-closed until an automatic mechanism is live validated.

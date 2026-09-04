@@ -4,6 +4,18 @@ All notable public changes are recorded here. This project follows semantic
 versioning for releases; its frozen runtime contracts retain their own explicit
 schema versions.
 
+## [Unreleased]
+
+- Added typed, memory-backed `RUNNING` / `WON` / `LOST` / `UNKNOWN` outcome
+  evidence for the supported GOTY layout without changing GameState v1.
+- Added fail-closed same-level reset postcondition verification behind a
+  pluggable restart driver. No automatic restart driver is claimed until live
+  validation is complete.
+- Added synchronous managed pickup collection, deduplication, confirmation
+  metrics, and composition through `TrainingEpisodeSupport`.
+- Added offline lifecycle tests and dedicated terminal/reset/pickup live tools.
+- This work is a v0.2.0 candidate only; it is not released or live-validated.
+
 ## [0.1.0] — 2026-09-04
 
 - First public **PvZ AI Harness** release.

@@ -100,3 +100,40 @@ virtual-key Escape path. The bounded command FIFO, coalesced refreshes, visible
 results, verified focus sequence, and one scan-code Escape pair corrected those
 issues before this final validation. Phase 3.5 runtime/harness infrastructure
 is therefore complete and frozen as the stable pre-Phase-4 boundary.
+
+## Unreleased Phase 4 training-support validation
+
+These checks are pending and must all pass before merge or release. Prepare the
+exact experiment level in active gameplay, then run:
+
+```powershell
+conda activate pvz-rl
+python tools/live_test_terminal_outcome.py
+```
+
+It must display `running`; after a deliberate natural win it must display
+`won` with raw evidence. Re-enter the same level and confirm `running`; then
+deliberately lose and leave the Zombies Won screen visible until it displays
+`lost`. Do not dismiss either result screen early.
+
+Validate reset postconditions at least three times, substituting the prepared
+level's observed numeric seed type IDs:
+
+```powershell
+python tools/live_test_same_level_reset.py --level 5 --seed-types 0 1
+```
+
+Use PvZ's normal Restart Level control only when prompted. Each pass must show
+`reset_ok`, a changed nonzero Board address, level 5, and a near-initial game
+clock. This validates operator-assisted reset; unattended reset still requires
+a separately implemented and live-validated driver.
+
+Leave falling sun visible and run:
+
+```powershell
+python tools/live_test_managed_pickups.py --seconds 30 --yes
+```
+
+Confirm observed pickups are clicked, sun rises, one stationary pickup is not
+spam-clicked, confirmed counts rise after disappearance, and a strategic action
+remains usable afterward. `--yes` is mandatory because this tool sends input.

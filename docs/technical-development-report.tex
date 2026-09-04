@@ -235,6 +235,24 @@ The implementation favors a small synchronous core and one lock rather than an a
 
 Known limitations are explicit: exact executable version is not fingerprinted; Board absence does not identify a specific application screen; natural win/loss still lacks validated evidence; Windows may deny foreground activation; menu navigation, seed selection, dialogue handling, pickup automation, and level restart remain outside scope. Phase 4 can consume the frozen Environment v1 through runtime adapters without learning code knowing PIDs, handles, HWNDs, focus mechanics, pause toggles, memory addresses, or raw coordinates.
 
+\section{Phase 4 Training Lifecycle Extension Candidate}
+The unreleased lifecycle extension retains every frozen v1 interface and adds
+orthogonal runtime services. Natural terminal evidence is read from the
+supported GOTY application's scene and Board result together with the live
+Board's level-complete flag. The provider exposes \texttt{RUNNING},
+\texttt{WON}, \texttt{LOST}, or \texttt{UNKNOWN} plus raw evidence. A live
+playing Board overrides a retained prior result; ambiguous transitions remain
+unknown.
+
+Reset is split into control and proof. A pluggable driver requests restart;
+the verifier returns \texttt{RESET\_OK} only for a replaced Board, the same
+Adventure level, optional exact seed types, an unpaused near-initial clock,
+observable health, and optionally empty entity sets. The default driver
+refuses, preventing an unvalidated coordinate sequence from masquerading as
+automatic reset. Managed pickups use Controller v1 under the runtime's single
+input lock, deduplicate pending identities, and confirm disappearance. Offline
+tests cover failure modes; real-client checks remain mandatory before v0.2.0.
+
 \section{Historical Pre-Phase-3 Portfolio Work}
 Before training begins: remove/ignore the local game, generated caches and raw traces; consider purging the game from Git history; add a concise root README with architecture/status/setup/report link and a statement that game files are not included; add reproducible Python environment metadata; add Windows CI for non-live tests; and tag the cleaned Phase 2 milestone (for example \texttt{phase-2-controller-v1}).
 \section{Conclusion}

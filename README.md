@@ -4,6 +4,10 @@ A reverse-engineering and reinforcement-learning project built around the origin
 
 > **Current milestone: Phase 3.5 complete — the Phase 1–3.5 PvZ AI Harness is frozen at v0.1.0. Phase 4 deep-reinforcement-learning work is next.**
 
+> **Development status:** v0.1.0 remains the frozen public release. Phase 4
+> lifecycle support is implemented on a feature branch and awaits live
+> validation before a v0.2.0 release.
+
 ## Quick start
 
 ```powershell
@@ -158,6 +162,21 @@ fingerprinting is not available and the runtime does not claim otherwise.
 Because GameState v1 lacks authoritative application-screen and natural
 win/loss fields, a missing Board is conservatively `MENU_OR_TRANSITION`, while
 terminal phases require a separately validated injected provider.
+
+## Phase 4 lifecycle candidate
+
+The unreleased training-support branch adds `GameOutcome` and raw
+`OutcomeEvidence`, `ResetResult` verification, `ManagedPickupCollector`, and
+`TrainingEpisodeSupport`. Outcome evidence is separate from GameState v1.
+Pickup clicks and strategic actions share `PvZRuntime.run_serialized()` and
+the existing Controller v1 path. Reset success requires a distinct Board,
+matching Adventure level, expected seeds when supplied, a near-initial clock,
+an unpaused observable state, and no stale entities when configured.
+
+The default restart driver deliberately refuses requests. A target-specific
+automatic restart mechanism has not been live validated, so unattended
+multi-episode training is not yet supported by a release. See
+`docs/LIVE_RUNTIME_VALIDATION.md` for the operator protocol.
 
 Launch the dependency-free Tk monitor:
 
