@@ -22,6 +22,12 @@ from pvz_runtime.session import (
     SessionRead,
     SessionStatus,
 )
+from pvz_reader.outcome import GameOutcome, OutcomeEvidence
+from pvz_runtime.training import (
+    CallbackRestartDriver, ManagedPickupCollector, PickupMetrics, ResetControlResult,
+    ResetExpectation, ResetResult, ResetStatus, TrainingEpisodeSupport,
+    UnsupportedRestartDriver,
+)
 
 __all__ = [
     "EnvironmentHealth", "FocusMode", "GamePhase", "GamePhaseDetector",
@@ -30,4 +36,7 @@ __all__ = [
     "RuntimeAction", "RuntimeActionResult", "RuntimeActionStatus",
     "RuntimeActionType", "RuntimeConfig", "RuntimePlantControllerAdapter",
     "RuntimeReaderAdapter", "RuntimeSnapshot", "SessionRead", "SessionStatus",
+    "CallbackRestartDriver", "GameOutcome", "ManagedPickupCollector",
+    "OutcomeEvidence", "PickupMetrics", "ResetControlResult", "ResetExpectation",
+    "ResetResult", "ResetStatus", "TrainingEpisodeSupport", "UnsupportedRestartDriver",
 ]

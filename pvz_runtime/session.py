@@ -18,6 +18,7 @@ from pvz_controller.windows_input import (
 )
 from pvz_reader.game_state import PvZGameStateReader
 from pvz_reader.memory import MemoryReader
+from pvz_reader.outcome import GameOutcome, OutcomeEvidence, read_outcome
 from pvz_reader.process import PVZ_PROCESS_NAMES
 from pvz_reader.versions import PVZ_VERSION
 
@@ -229,6 +230,17 @@ class PvZSession:
                 return SessionRead(None, False, message)
             self._last_error = None
             return SessionRead(state, True)
+
+    def read_outcome(self) -> OutcomeEvidence:
+        """Read lifecycle evidence from the PID-bound memory attachment."""
+        with self._lock:
+            status = self.ensure_attached()
+            if not status.attached or self._memory is None:
+                return OutcomeEvidence(
+                    GameOutcome.UNKNOWN, "not_attached",
+                    error=status.last_error or "not_attached",
+                )
+            return read_outcome(self._memory)
 
     def is_process_alive(self) -> bool:
         with self._lock:

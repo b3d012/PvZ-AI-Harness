@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from threading import RLock
 import time
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from pvz_controller import ActionResult, PvZController
 from pvz_controller.windows_input import ControllerInputError, WindowsInputBackend
@@ -24,9 +24,11 @@ from pvz_runtime.models import (
     RuntimeSnapshot,
 )
 from pvz_runtime.session import PvZSession, SessionRead, SessionStatus
+from pvz_reader.outcome import GameOutcome, OutcomeEvidence
 
 
 LOGGER = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 class PvZRuntime:
@@ -69,6 +71,7 @@ class PvZRuntime:
         self._last_focus_result: str | None = None
         self._last_pause_result: str | None = None
         self._last_input_result: str | None = None
+        self._last_outcome: OutcomeEvidence | None = None
 
     @property
     def focus_mode(self) -> FocusMode:
@@ -105,6 +108,17 @@ class PvZRuntime:
             read = self.session.read()
             self._record_read(read)
             return read.state
+
+    def outcome(self) -> OutcomeEvidence:
+        """Return fresh typed natural-terminal evidence."""
+        with self._lock:
+            self._last_outcome = self.session.read_outcome()
+            return self._last_outcome
+
+    def run_serialized(self, operation: Callable[["PvZRuntime"], T]) -> T:
+        """Run a bounded composite operation under the single input lock."""
+        with self._lock:
+            return operation(self)
 
     def refresh(self) -> RuntimeSnapshot:
         with self._lock:
@@ -270,6 +284,7 @@ class PvZRuntime:
                 last_focus_result=self._last_focus_result,
                 last_pause_result=self._last_pause_result,
                 last_input_result=self._last_input_result,
+                outcome=self._last_outcome,
             )
 
     def reader_adapter(self) -> "RuntimeReaderAdapter":
@@ -295,6 +310,12 @@ class PvZRuntime:
         terminal_hint = None
         if read.state is not None and self._terminal_phase_provider is not None:
             terminal_hint = self._terminal_phase_provider(read.state)
+        elif status.attached:
+            self._last_outcome = self.session.read_outcome()
+            if self._last_outcome.outcome is GameOutcome.WON:
+                terminal_hint = GamePhase.LEVEL_WON
+            elif self._last_outcome.outcome is GameOutcome.LOST:
+                terminal_hint = GamePhase.LEVEL_LOST
         new = self.phase_detector.detect(
             PhaseEvidence(status.process_alive, read.reader_valid, read.state, terminal_hint)
         )
@@ -413,6 +434,7 @@ class PvZRuntime:
         self._last_state_at = None
         self._last_reader_valid = False
         self._last_error = None
+        self._last_outcome = None
 
     def __enter__(self) -> "PvZRuntime":
         self.attach()
