@@ -5,7 +5,7 @@ This notice is a provenance record, not legal advice.
 
 ## `references/pvztoolkit`
 
-[`pvztoolkit`](https://github.com/cheezburger/pvztoolkit) is included as a Git
+[`pvztoolkit`](https://github.com/lmintlcx/pvztoolkit) is included as a Git
 submodule solely as a reverse-engineering research reference. It remains a
 separate upstream work under GPL-3.0 and retains its own copyright and license
 files in the submodule. It is not the runtime engine for this project.
