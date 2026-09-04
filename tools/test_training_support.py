@@ -1,0 +1,232 @@
+"""Offline Phase 4 lifecycle tests; no process attachment or input."""
+
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from pvz_reader.outcome import BoardResult, GameOutcome, GameScene, OutcomeEvidence, read_outcome
+from pvz_reader.versions import OFFSETS, PVZ_VERSION
+from pvz_runtime import (
+    ManagedPickupCollector, ResetControlResult, ResetExpectation, ResetStatus,
+    TrainingEpisodeSupport, UnsupportedRestartDriver,
+)
+
+
+class AddressMemory:
+    def __init__(self, *, lawn=0x1000, board=0x2000, scene=3, result=0, complete=False, error=None):
+        self.lawn, self.board, self.scene = lawn, board, scene
+        self.result, self.complete, self.error = result, complete, error
+        self.o = OFFSETS[PVZ_VERSION]
+
+    def _maybe_fail(self):
+        if self.error:
+            raise self.error
+
+    def read_pointer(self, address):
+        self._maybe_fail()
+        if address == self.o["lawn"]:
+            return self.lawn
+        if address == self.lawn + self.o["board"]:
+            return self.board
+        raise AssertionError(hex(address))
+
+    def read_int(self, address):
+        self._maybe_fail()
+        if address == self.lawn + self.o["game_scene"]:
+            return self.scene
+        if address == self.lawn + self.o["board_result"]:
+            return self.result
+        raise AssertionError(hex(address))
+
+    def read_bool(self, address):
+        self._maybe_fail()
+        if address == self.board + self.o["level_complete"]:
+            return self.complete
+        raise AssertionError(hex(address))
+
+
+class OutcomeTests(unittest.TestCase):
+    def test_running_ignores_stale_application_result(self):
+        evidence = read_outcome(AddressMemory(result=BoardResult.WON))
+        self.assertEqual(evidence.outcome, GameOutcome.RUNNING)
+        self.assertEqual(evidence.reason, "live_board_playing")
+
+    def test_won_from_live_board_completion(self):
+        evidence = read_outcome(AddressMemory(complete=True))
+        self.assertEqual(evidence.outcome, GameOutcome.WON)
+
+    def test_lost_from_zombies_won_scene(self):
+        evidence = read_outcome(AddressMemory(scene=GameScene.ZOMBIES_WON))
+        self.assertEqual(evidence.outcome, GameOutcome.LOST)
+
+    def test_terminal_result_survives_missing_board(self):
+        won = read_outcome(AddressMemory(board=0, scene=GameScene.AWARD, result=BoardResult.WON))
+        lost = read_outcome(AddressMemory(board=0, scene=GameScene.ZOMBIES_WON, result=BoardResult.LOST))
+        self.assertEqual(won.outcome, GameOutcome.WON)
+        self.assertEqual(lost.outcome, GameOutcome.LOST)
+
+    def test_missing_lawn_and_read_failure_are_unknown(self):
+        self.assertEqual(read_outcome(AddressMemory(lawn=0)).outcome, GameOutcome.UNKNOWN)
+        failed = read_outcome(AddressMemory(error=OSError("gone")))
+        self.assertEqual(failed.outcome, GameOutcome.UNKNOWN)
+        self.assertIn("OSError", failed.error)
+
+    def test_nonterminal_transition_is_unknown(self):
+        evidence = read_outcome(AddressMemory(board=0, scene=GameScene.MENU, result=BoardResult.NONE))
+        self.assertEqual(evidence.outcome, GameOutcome.UNKNOWN)
+
+
+def state(*, level=5, clock=5, pickups=(), plants=(), zombies=(), seeds=(0, 1)):
+    return SimpleNamespace(
+        adventure_level=level, game_clock=clock, paused=False,
+        pickups=list(pickups), plants=list(plants), zombies=list(zombies),
+        seeds=[SimpleNamespace(type_id=value) for value in seeds],
+    )
+
+
+def pickup(slot=0, type_id=4, x=100.0, y=200.0):
+    return SimpleNamespace(
+        slot=slot, type_id=type_id, x=x, y=y, collectible=True,
+        is_sun=type_id in (4, 5, 6),
+    )
+
+
+class PickupRuntime:
+    def __init__(self, states, *, accepted=True, can_act=True):
+        self.states = list(states)
+        self.index = 0
+        self.health = SimpleNamespace(can_act=can_act)
+        self.accepted = accepted
+        self.actions = []
+        self.serialized_calls = 0
+
+    def run_serialized(self, operation):
+        self.serialized_calls += 1
+        return operation(self)
+
+    def observe(self):
+        value = self.states[min(self.index, len(self.states) - 1)]
+        self.index += 1
+        return value
+
+    def outcome(self):
+        return OutcomeEvidence(GameOutcome.RUNNING, "test", board_address=0x2000)
+
+    def execute(self, action):
+        self.actions.append(action)
+        return SimpleNamespace(accepted=self.accepted)
+
+
+class PickupTests(unittest.TestCase):
+    def test_pickup_is_serialized_deduplicated_and_confirmed_on_disappearance(self):
+        item = pickup()
+        runtime = PickupRuntime([state(pickups=[item]), state(pickups=[item]), state(pickups=[])])
+        collector = ManagedPickupCollector(runtime)
+        collector.collect_once()
+        collector.collect_once()
+        metrics = collector.collect_once()
+        self.assertEqual((metrics.attempts, metrics.successes, metrics.failures), (1, 1, 0))
+        self.assertEqual((metrics.pickups_collected, metrics.sun_pickups_collected), (1, 1))
+        self.assertEqual(runtime.serialized_calls, 3)
+        self.assertEqual(len(runtime.actions), 1)
+
+    def test_failure_is_recorded_and_unhealthy_runtime_does_not_act(self):
+        item = pickup()
+        failed_runtime = PickupRuntime([state(pickups=[item]), state(pickups=[item])], accepted=False)
+        collector = ManagedPickupCollector(failed_runtime)
+        metrics = collector.collect_once()
+        collector.collect_once()
+        self.assertEqual((metrics.attempts, metrics.failures), (1, 1))
+        unhealthy = PickupRuntime([state(pickups=[pickup()])], can_act=False)
+        ManagedPickupCollector(unhealthy).collect_once()
+        self.assertEqual(unhealthy.actions, [])
+
+    def test_shutdown_disables_collection(self):
+        runtime = PickupRuntime([state(pickups=[pickup()])])
+        collector = ManagedPickupCollector(runtime)
+        collector.shutdown()
+        collector.collect_once()
+        self.assertEqual(runtime.actions, [])
+
+
+class Driver:
+    def __init__(self, requested=True):
+        self.requested = requested
+
+    def request_restart(self, runtime):
+        return ResetControlResult(self.requested, "test_driver")
+
+
+class ResetRuntime:
+    def __init__(self, states, boards, *, process_alive=True):
+        self.states = list(states)
+        self.boards = list(boards)
+        self.index = -1
+        self.process_alive = process_alive
+
+    def run_serialized(self, operation):
+        return operation(self)
+
+    def observe(self):
+        self.index = min(self.index + 1, len(self.states) - 1)
+        return self.states[self.index]
+
+    def outcome(self):
+        board = self.boards[max(0, self.index)]
+        return OutcomeEvidence(GameOutcome.RUNNING, "test", board_address=board)
+
+    @property
+    def health(self):
+        return SimpleNamespace(can_observe=self.states[max(0, self.index)] is not None,
+                               process_alive=self.process_alive)
+
+
+class ResetTests(unittest.TestCase):
+    def support(self, runtime, driver=None, timeout=0.1):
+        return TrainingEpisodeSupport(
+            runtime, restart_driver=driver or Driver(), reset_timeout_seconds=timeout,
+            reset_poll_interval_seconds=0.05, sleeper=lambda _: None,
+        )
+
+    def test_verified_same_level_fresh_board(self):
+        runtime = ResetRuntime([state(clock=500, plants=[1]), state(clock=3)], [10, 20])
+        result = self.support(runtime).reset_current_level(ResetExpectation(5, (0, 1)))
+        self.assertEqual(result.status, ResetStatus.RESET_OK)
+        self.assertEqual(result.board_address, 20)
+
+    def test_wrong_level_and_seed_bank_mismatch_fail_closed(self):
+        wrong = ResetRuntime([state(clock=500), state(level=6)], [10, 20])
+        result = self.support(wrong).reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.WRONG_LEVEL)
+        seeds = ResetRuntime([state(clock=500), state(seeds=(2, 3))], [10, 20])
+        result = self.support(seeds).reset_current_level(ResetExpectation(5, (0, 1)))
+        self.assertEqual(result.status, ResetStatus.SEED_BANK_MISMATCH)
+
+    def test_stale_board_times_out_and_unsupported_driver_fails(self):
+        runtime = ResetRuntime([state(clock=500), state(clock=0)], [10, 10])
+        result = self.support(runtime, timeout=0.0).reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.BOARD_NOT_REPLACED)
+        runtime = ResetRuntime([state(clock=500)], [10])
+        support = self.support(runtime, UnsupportedRestartDriver())
+        result = support.reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.RESET_CONTROL_FAILED)
+
+    def test_process_failure_and_stale_entities_are_not_success(self):
+        gone = ResetRuntime([state(clock=500), state(clock=0)], [10, 20], process_alive=False)
+        self.assertEqual(
+            self.support(gone).reset_current_level(ResetExpectation(5)).status,
+            ResetStatus.NOT_ATTACHED,
+        )
+        stale = ResetRuntime([state(clock=500), state(clock=0, zombies=[1])], [10, 20])
+        self.assertEqual(
+            self.support(stale).reset_current_level(ResetExpectation(5)).status,
+            ResetStatus.STALE_ENTITIES,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
