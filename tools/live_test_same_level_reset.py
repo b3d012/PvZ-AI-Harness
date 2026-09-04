@@ -8,22 +8,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pvz_runtime import CallbackRestartDriver, PvZRuntime, ResetExpectation, TrainingEpisodeSupport
+from pvz_runtime import (
+    CallbackRestartDriver, FocusMode, NormalUiRestartDriver, PvZRuntime, ResetExpectation,
+    RuntimeConfig,
+    TrainingEpisodeSupport,
+)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--level", type=int, required=True)
     parser.add_argument("--seed-types", type=int, nargs="*")
+    parser.add_argument("--automatic", action="store_true",
+                        help="Use the validated normal UI restart path (sends input).")
+    parser.add_argument("--yes", action="store_true",
+                        help="Required with --automatic to authorize live input.")
     args = parser.parse_args()
+
+    if args.automatic and not args.yes:
+        raise SystemExit("--automatic requires --yes because it sends normal PvZ input")
 
     def operator_restart(_runtime):
         input("Use PvZ's normal Restart Level control now. Press Enter only after confirming it. ")
         return True
 
-    runtime = PvZRuntime()
+    runtime = PvZRuntime(config=RuntimeConfig(
+        focus_mode=FocusMode.AUTO if args.automatic else FocusMode.MANUAL,
+    ))
     runtime.attach()
-    support = TrainingEpisodeSupport(runtime, restart_driver=CallbackRestartDriver(operator_restart))
+    driver = NormalUiRestartDriver() if args.automatic else CallbackRestartDriver(operator_restart)
+    support = TrainingEpisodeSupport(runtime, restart_driver=driver)
     try:
         result = support.reset_current_level(ResetExpectation(
             args.level,

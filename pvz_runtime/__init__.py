@@ -24,7 +24,7 @@ from pvz_runtime.session import (
 )
 from pvz_reader.outcome import GameOutcome, OutcomeEvidence
 from pvz_runtime.training import (
-    CallbackRestartDriver, ManagedPickupCollector, PickupMetrics, ResetControlResult,
+    CallbackRestartDriver, ManagedPickupCollector, NormalUiRestartDriver, PickupMetrics, ResetControlResult,
     ResetExpectation, ResetResult, ResetStatus, TrainingEpisodeSupport,
     UnsupportedRestartDriver,
 )
@@ -36,7 +36,7 @@ __all__ = [
     "RuntimeAction", "RuntimeActionResult", "RuntimeActionStatus",
     "RuntimeActionType", "RuntimeConfig", "RuntimePlantControllerAdapter",
     "RuntimeReaderAdapter", "RuntimeSnapshot", "SessionRead", "SessionStatus",
-    "CallbackRestartDriver", "GameOutcome", "ManagedPickupCollector",
+    "CallbackRestartDriver", "GameOutcome", "ManagedPickupCollector", "NormalUiRestartDriver",
     "OutcomeEvidence", "PickupMetrics", "ResetControlResult", "ResetExpectation",
     "ResetResult", "ResetStatus", "TrainingEpisodeSupport", "UnsupportedRestartDriver",
 ]

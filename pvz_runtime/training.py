@@ -8,6 +8,7 @@ import time
 from typing import Any, Protocol
 
 from pvz_reader.outcome import GameOutcome, OutcomeEvidence
+from pvz_controller.windows_input import ControllerInputError
 from pvz_runtime.models import RuntimeAction
 
 
@@ -82,6 +83,117 @@ class CallbackRestartDriver:
         except Exception as error:
             return ResetControlResult(False, f"callback_failed:{type(error).__name__}:{error}")
         return ResetControlResult(requested, "restart_requested" if requested else "callback_refused")
+
+
+class NormalUiRestartDriver:
+    """Version-pinned, fail-closed driver for PvZ's normal restart controls.
+
+    This is deliberately not a menu navigator. It restarts an attached 800x600
+    board only through the in-game Menu -> Restart Level -> confirmation
+    sequence, or accepts native Try Again after a loss. The Adventure award
+    screen has no same-level replay control, so a win is refused without input.
+    """
+
+    MENU_BUTTON = (739, 13)
+    RESTART_LEVEL_BUTTON = (400, 358)
+    CLIENT_SIZE = (800, 600)
+
+    def __init__(self, *, transition_timeout_seconds: float = 1.0,
+                 poll_interval_seconds: float = 0.05, sleeper: Any = time.sleep) -> None:
+        self.transition_timeout_seconds = transition_timeout_seconds
+        self.poll_interval_seconds = poll_interval_seconds
+        self._sleeper = sleeper
+
+    def request_restart(self, runtime: Any) -> ResetControlResult:
+        before_state = runtime.observe()
+        before = runtime.outcome()
+        if before_state is None:
+            return ResetControlResult(False, "state_unavailable")
+        if getattr(runtime.config, "observer_only", False):
+            return ResetControlResult(False, "observer_only_runtime")
+        if not runtime.health.process_alive or not runtime.health.window_valid:
+            return ResetControlResult(False, "runtime_not_input_ready")
+        if before.outcome is GameOutcome.WON:
+            return ResetControlResult(False, "won_requires_supported_same_level_reentry")
+        if before.outcome is GameOutcome.LOST:
+            return self._restart_lost(runtime)
+        if before.outcome is not GameOutcome.RUNNING:
+            return ResetControlResult(False, f"unsupported_outcome:{before.outcome.value}")
+        if not self._validate_client(runtime):
+            return ResetControlResult(False, "unsupported_client_geometry")
+        if bool(before_state.paused):
+            return self._restart_paused(runtime, before)
+        return self._restart_playing(runtime, before)
+
+    def _validate_client(self, runtime: Any) -> bool:
+        try:
+            area = runtime.session.input_backend.get_client_area()
+        except ControllerInputError:
+            return False
+        return (int(area.width), int(area.height)) == self.CLIENT_SIZE
+
+    def _restart_paused(self, runtime: Any, before: OutcomeEvidence) -> ResetControlResult:
+        try:
+            runtime.session.input_backend.press_enter()
+        except ControllerInputError as error:
+            return ResetControlResult(False, f"resume_input_failed:{type(error).__name__}:{error}")
+        if not self._wait_for(runtime, before, paused=False):
+            return ResetControlResult(False, "pause_dialog_resume_not_verified")
+        return self._restart_playing(runtime, before)
+
+    def _restart_playing(self, runtime: Any, before: OutcomeEvidence) -> ResetControlResult:
+        if not self._is_live_board(runtime, before, paused=False):
+            return ResetControlResult(False, "playing_state_not_verified")
+        try:
+            runtime.session.input_backend.left_click(*self.MENU_BUTTON)
+        except ControllerInputError as error:
+            return ResetControlResult(False, f"menu_input_failed:{type(error).__name__}:{error}")
+        if not self._wait_for(runtime, before, paused=True):
+            return ResetControlResult(False, "menu_transition_not_verified")
+        try:
+            runtime.session.input_backend.left_click(*self.RESTART_LEVEL_BUTTON)
+        except ControllerInputError as error:
+            return ResetControlResult(False, f"restart_input_failed:{type(error).__name__}:{error}")
+        if not self._is_live_board(runtime, before, paused=True):
+            return ResetControlResult(False, "restart_menu_state_lost")
+        try:
+            # If the restart control was absent, Enter only closes Options and
+            # the unchanged Board is rejected by the outer reset verifier.
+            runtime.session.input_backend.press_enter()
+        except ControllerInputError as error:
+            return ResetControlResult(False, f"confirmation_input_failed:{type(error).__name__}:{error}")
+        return ResetControlResult(True, "normal_menu_restart_requested")
+
+    def _restart_lost(self, runtime: Any) -> ResetControlResult:
+        if not self._validate_client(runtime):
+            return ResetControlResult(False, "unsupported_client_geometry")
+        try:
+            runtime.session.input_backend.press_enter()
+        except ControllerInputError as error:
+            return ResetControlResult(False, f"loss_retry_input_failed:{type(error).__name__}:{error}")
+        return ResetControlResult(True, "loss_try_again_requested")
+
+    def _wait_for(self, runtime: Any, before: OutcomeEvidence, *, paused: bool) -> bool:
+        waited = 0.0
+        while True:
+            if self._is_live_board(runtime, before, paused=paused):
+                return True
+            if waited >= self.transition_timeout_seconds:
+                return False
+            interval = min(self.poll_interval_seconds, self.transition_timeout_seconds - waited)
+            self._sleeper(interval)
+            waited += interval
+
+    @staticmethod
+    def _is_live_board(runtime: Any, before: OutcomeEvidence, *, paused: bool) -> bool:
+        state = runtime.observe()
+        after = runtime.outcome()
+        return (
+            state is not None
+            and after.outcome is GameOutcome.RUNNING
+            and after.board_address == before.board_address
+            and bool(state.paused) is paused
+        )
 
 
 @dataclass

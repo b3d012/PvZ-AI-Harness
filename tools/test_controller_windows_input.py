@@ -20,6 +20,7 @@ from pvz_controller.windows_input import (
     MAPVK_VK_TO_VSC,
     SW_RESTORE,
     VK_ESCAPE,
+    WindowRect,
     WindowsInputBackend,
     _Win32Api,
 )
@@ -54,6 +55,15 @@ class FakeWindowsApi:
 
     def client_area(self, hwnd):
         return ClientArea(hwnd, 200, 100, 1600, 900)
+
+    def window_rect(self, _hwnd):
+        return WindowRect(180, 70, 1820, 1030)
+
+    def dpi_for_window(self, _hwnd):
+        return 144
+
+    def cursor_position(self):
+        return (1000, 550)
 
     def focus(self, _hwnd):
         return self.focus_result
@@ -90,6 +100,15 @@ class WindowsInputBackendTests(unittest.TestCase):
         self.assertEqual(screen_point, (1000, 550))
         self.assertEqual(api.cursor_positions, [(1000, 550)])
         self.assertEqual(api.click_count, 1)
+
+    def test_coordinate_report_keeps_window_and_client_origins_separate(self):
+        backend = WindowsInputBackend(api=FakeWindowsApi())
+        report = backend.coordinate_report()
+        self.assertEqual(report.window_rect, WindowRect(180, 70, 1820, 1030))
+        self.assertEqual((report.client_area.screen_x, report.client_area.screen_y), (200, 100))
+        self.assertEqual(report.scale, (2.0, 1.5))
+        self.assertEqual(backend.screen_to_client(1000, 550), (800, 450))
+        self.assertEqual(backend.cursor_screen_position(), (1000, 550))
 
     def test_move_settles_before_click(self):
         api = FakeWindowsApi()

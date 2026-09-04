@@ -10,8 +10,9 @@ sys.path.insert(0, str(ROOT))
 
 from pvz_reader.outcome import BoardResult, GameOutcome, GameScene, OutcomeEvidence, read_outcome
 from pvz_reader.versions import OFFSETS, PVZ_VERSION
+from pvz_controller.windows_input import InputFailed
 from pvz_runtime import (
-    ManagedPickupCollector, ResetControlResult, ResetExpectation, ResetStatus,
+    ManagedPickupCollector, NormalUiRestartDriver, ResetControlResult, ResetExpectation, ResetStatus,
     TrainingEpisodeSupport, UnsupportedRestartDriver,
 )
 
@@ -226,6 +227,83 @@ class ResetTests(unittest.TestCase):
             self.support(stale).reset_current_level(ResetExpectation(5)).status,
             ResetStatus.STALE_ENTITIES,
         )
+
+
+class RestartInput:
+    def __init__(self, runtime, *, fail=None):
+        self.runtime, self.fail, self.events = runtime, fail, []
+
+    def get_client_area(self):
+        return SimpleNamespace(width=800, height=600)
+
+    def left_click(self, x, y):
+        self.events.append(("click", x, y))
+        if self.fail == "click":
+            raise InputFailed("input refused")
+        if (x, y) == NormalUiRestartDriver.MENU_BUTTON:
+            self.runtime.paused = True
+
+    def press_enter(self):
+        self.events.append(("enter",))
+        if self.fail == "enter":
+            raise InputFailed("input refused")
+        if self.runtime.paused and len(self.events) == 1:
+            self.runtime.paused = False
+
+
+class UiDriverRuntime:
+    def __init__(self, outcome=GameOutcome.RUNNING, *, paused=False, fail=None):
+        self.outcome_value, self.paused = outcome, paused
+        self.config = SimpleNamespace(observer_only=False)
+        self.health = SimpleNamespace(process_alive=True, window_valid=True)
+        self.session = SimpleNamespace(input_backend=RestartInput(self, fail=fail))
+
+    def observe(self):
+        return SimpleNamespace(
+            adventure_level=5, game_clock=100, paused=self.paused, plants=[], zombies=[], seeds=[]
+        )
+
+    def outcome(self):
+        return OutcomeEvidence(self.outcome_value, "test", board_address=0x2000)
+
+
+class NormalUiRestartDriverTests(unittest.TestCase):
+    def driver(self):
+        return NormalUiRestartDriver(transition_timeout_seconds=0.0, sleeper=lambda _: None)
+
+    def test_playing_uses_one_menu_restart_sequence(self):
+        runtime = UiDriverRuntime()
+        result = self.driver().request_restart(runtime)
+        self.assertTrue(result.requested)
+        self.assertEqual(runtime.session.input_backend.events, [
+            ("click", 739, 13), ("click", 400, 358), ("enter",),
+        ])
+
+    def test_paused_resumes_before_the_same_sequence(self):
+        runtime = UiDriverRuntime(paused=True)
+        result = NormalUiRestartDriver(sleeper=lambda _: None).request_restart(runtime)
+        self.assertTrue(result.requested)
+        self.assertEqual(runtime.session.input_backend.events[0], ("enter",))
+        self.assertEqual(runtime.session.input_backend.events.count(("click", 400, 358)), 1)
+
+    def test_loss_uses_only_native_try_again_and_win_is_refused(self):
+        lost = UiDriverRuntime(GameOutcome.LOST)
+        self.assertTrue(self.driver().request_restart(lost).requested)
+        self.assertEqual(lost.session.input_backend.events, [("enter",)])
+        won = UiDriverRuntime(GameOutcome.WON)
+        result = self.driver().request_restart(won)
+        self.assertFalse(result.requested)
+        self.assertIn("same_level_reentry", result.reason)
+        self.assertEqual(won.session.input_backend.events, [])
+
+    def test_bad_geometry_and_input_failure_refuse_without_restart(self):
+        runtime = UiDriverRuntime(fail="click")
+        result = self.driver().request_restart(runtime)
+        self.assertFalse(result.requested)
+        self.assertIn("menu_input_failed", result.reason)
+        runtime = UiDriverRuntime()
+        runtime.session.input_backend.get_client_area = lambda: SimpleNamespace(width=801, height=600)
+        self.assertFalse(self.driver().request_restart(runtime).requested)
 
 
 if __name__ == "__main__":
