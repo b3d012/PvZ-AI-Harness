@@ -137,3 +137,11 @@ python tools/live_test_managed_pickups.py --seconds 30 --yes
 Confirm observed pickups are clicked, sun rises, one stationary pickup is not
 spam-clicked, confirmed counts rise after disappearance, and a strategic action
 remains usable afterward. `--yes` is mandatory because this tool sends input.
+
+### Partial read-only observation — 4 September 2026
+
+An observer-only attachment to a real paused Adventure level 7 Board read
+`game_scene=3`, `board_result=0`, and `level_complete=false` and returned
+`RUNNING` with reason `live_board_playing`. PID-bound process/window/Board
+health was coherent. No input was sent. This validates only the ordinary live
+Board mapping; WON, LOST, automatic reset, and managed pickups remain pending.

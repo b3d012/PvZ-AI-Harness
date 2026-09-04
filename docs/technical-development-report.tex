@@ -252,6 +252,10 @@ refuses, preventing an unvalidated coordinate sequence from masquerading as
 automatic reset. Managed pickups use Controller v1 under the runtime's single
 input lock, deduplicate pending identities, and confirm disappearance. Offline
 tests cover failure modes; real-client checks remain mandatory before v0.2.0.
+An observer-only partial live observation on 4 September 2026 read a coherent
+paused Adventure level 7 Board with application scene 3, Board result 0, and a
+false completion flag, producing \texttt{RUNNING}. No input was sent. This does
+not validate win, loss, reset, or pickup behavior.
 
 \section{Historical Pre-Phase-3 Portfolio Work}
 Before training begins: remove/ignore the local game, generated caches and raw traces; consider purging the game from Git history; add a concise root README with architecture/status/setup/report link and a statement that game files are not included; add reproducible Python environment metadata; add Windows CI for non-live tests; and tag the cleaned Phase 2 milestone (for example \texttt{phase-2-controller-v1}).
