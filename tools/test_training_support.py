@@ -230,17 +230,17 @@ class ResetTests(unittest.TestCase):
 
 
 class RestartInput:
-    def __init__(self, runtime, *, fail=None):
-        self.runtime, self.fail, self.events = runtime, fail, []
+    def __init__(self, runtime, *, fail=None, opens_menu=True):
+        self.runtime, self.fail, self.opens_menu, self.events = runtime, fail, opens_menu, []
 
     def get_client_area(self):
         return SimpleNamespace(width=800, height=600)
 
-    def left_click(self, x, y):
-        self.events.append(("click", x, y))
+    def left_click(self, x, y, *, move_settle_delay=0.0):
+        self.events.append(("click", x, y, move_settle_delay))
         if self.fail == "click":
             raise InputFailed("input refused")
-        if (x, y) == NormalUiRestartDriver.MENU_BUTTON:
+        if self.opens_menu and (x, y) == NormalUiRestartDriver.MENU_BUTTON:
             self.runtime.paused = True
 
     def press_enter(self):
@@ -252,11 +252,11 @@ class RestartInput:
 
 
 class UiDriverRuntime:
-    def __init__(self, outcome=GameOutcome.RUNNING, *, paused=False, fail=None):
+    def __init__(self, outcome=GameOutcome.RUNNING, *, paused=False, fail=None, opens_menu=True):
         self.outcome_value, self.paused = outcome, paused
         self.config = SimpleNamespace(observer_only=False)
         self.health = SimpleNamespace(process_alive=True, window_valid=True)
-        self.session = SimpleNamespace(input_backend=RestartInput(self, fail=fail))
+        self.session = SimpleNamespace(input_backend=RestartInput(self, fail=fail, opens_menu=opens_menu))
 
     def observe(self):
         return SimpleNamespace(
@@ -276,15 +276,23 @@ class NormalUiRestartDriverTests(unittest.TestCase):
         result = self.driver().request_restart(runtime)
         self.assertTrue(result.requested)
         self.assertEqual(runtime.session.input_backend.events, [
-            ("click", 739, 13), ("click", 400, 358), ("enter",),
+            ("click", 739, 13, 0.10), ("click", 400, 358, 0.10), ("enter",),
         ])
 
-    def test_paused_resumes_before_the_same_sequence(self):
+    def test_externally_paused_state_is_refused_without_any_input(self):
         runtime = UiDriverRuntime(paused=True)
         result = NormalUiRestartDriver(sleeper=lambda _: None).request_restart(runtime)
+        self.assertFalse(result.requested)
+        self.assertEqual(result.reason, "paused_menu_not_verified")
+        self.assertEqual(runtime.session.input_backend.events, [])
+
+    def test_explicitly_attested_pause_menu_restarts_without_menu_click(self):
+        runtime = UiDriverRuntime(paused=True)
+        result = NormalUiRestartDriver(sleeper=lambda _: None, known_pause_menu=True).request_restart(runtime)
         self.assertTrue(result.requested)
-        self.assertEqual(runtime.session.input_backend.events[0], ("enter",))
-        self.assertEqual(runtime.session.input_backend.events.count(("click", 400, 358)), 1)
+        self.assertEqual(runtime.session.input_backend.events, [
+            ("click", 400, 358, 0.10), ("enter",),
+        ])
 
     def test_loss_uses_only_native_try_again_and_win_is_refused(self):
         lost = UiDriverRuntime(GameOutcome.LOST)
@@ -304,6 +312,13 @@ class NormalUiRestartDriverTests(unittest.TestCase):
         runtime = UiDriverRuntime()
         runtime.session.input_backend.get_client_area = lambda: SimpleNamespace(width=801, height=600)
         self.assertFalse(self.driver().request_restart(runtime).requested)
+
+    def test_no_restart_click_or_confirmation_after_unverified_menu_transition(self):
+        runtime = UiDriverRuntime(opens_menu=False)
+        result = self.driver().request_restart(runtime)
+        self.assertFalse(result.requested)
+        self.assertEqual(result.reason, "menu_transition_not_verified")
+        self.assertEqual(runtime.session.input_backend.events, [("click", 739, 13, 0.10)])
 
 
 if __name__ == "__main__":

@@ -145,3 +145,26 @@ An observer-only attachment to a real paused Adventure level 7 Board read
 `RUNNING` with reason `live_board_playing`. PID-bound process/window/Board
 health was coherent. No input was sent. This validates only the ordinary live
 Board mapping; WON, LOST, automatic reset, and managed pickups remain pending.
+
+### Training lifecycle update — 5 September 2026
+
+The supported controlled condition is Adventure 1-7. Terminal outcome mapping
+was live-observed for RUNNING, WON across Board teardown/Award, and LOST with a
+live Board/Zombies Won scene. The operator-assisted same-level verifier passed
+three times at level 7; managed pickup collection confirmed 11/11 sun pickups
+with zero failures.
+
+The initial automatic Menu failure was not a WindowRect, client-origin, DPI,
+or focus error. On GOTY 1.2.0.1073 the synthetic cursor must settle briefly
+after moving to the visible Menu control before its click is accepted. A
+driver-local 100 ms settle delay opened the normal Menu with one click; board
+controller and pickup click defaults were not changed. A settled Restart Level
+click visibly opened the native ``Restart Level?`` confirmation, and one Enter
+created a distinct level-7 Board at clock zero.
+
+Automatic active reset passed three consecutive times with distinct Board
+addresses and `RESET_OK` at level 7. An explicitly attested, already-visible
+normal Menu also reset successfully. `GameState.paused` alone remains
+insufficient evidence of that menu, so the default driver refuses externally
+paused states without input. Native loss retry and same-level win reset remain
+unvalidated; win reset is still refused.

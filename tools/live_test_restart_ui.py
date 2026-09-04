@@ -28,7 +28,9 @@ def snapshot(runtime: PvZRuntime) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--probe-menu", action="store_true", required=True)
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--probe-menu", action="store_true")
+    modes.add_argument("--probe-restart", action="store_true")
     parser.add_argument("--level", type=int, default=7)
     parser.add_argument("--yes", action="store_true",
                         help="Required because exactly one Menu click is sent.")
@@ -42,14 +44,26 @@ def main() -> None:
         before = snapshot(runtime)
         state = runtime.observe()
         outcome = runtime.outcome()
-        if (state is None or bool(state.paused) or int(state.adventure_level) != args.level
-                or outcome.outcome is not GameOutcome.RUNNING):
+        if (state is None or int(state.adventure_level) != args.level
+                or outcome.outcome is not GameOutcome.RUNNING
+                or (args.probe_menu and bool(state.paused))
+                or (args.probe_restart and not bool(state.paused))):
             print(json.dumps({"status": "refused", "before": before}, indent=2, sort_keys=True))
             raise SystemExit("FAIL: expected unpaused running configured level")
         driver = NormalUiRestartDriver()
         if not driver._validate_client(runtime):
             raise SystemExit("FAIL: unsupported client geometry")
-        runtime.session.input_backend.left_click(*driver.MENU_BUTTON)
+        if args.probe_restart:
+            # A restart probe must begin with an already visible normal menu;
+            # do not guess that any paused state represents that dialog.
+            if not bool(state.paused):
+                raise SystemExit("FAIL: --probe-restart requires an already open PvZ Menu")
+            point = driver.RESTART_LEVEL_BUTTON
+        else:
+            point = driver.MENU_BUTTON
+        runtime.session.input_backend.left_click(
+            *point, move_settle_delay=driver.UI_CONTROL_MOVE_SETTLE_DELAY,
+        )
         deadline = time.monotonic() + driver.transition_timeout_seconds
         after = snapshot(runtime)
         while time.monotonic() < deadline:
@@ -60,11 +74,15 @@ def main() -> None:
             time.sleep(driver.poll_interval_seconds)
             after = snapshot(runtime)
         print(json.dumps({
-            "status": "menu_open_verified" if after["state_available"] and after["paused"] else "menu_open_unverified",
-            "input": {"logical": driver.MENU_BUTTON},
+            "status": (
+                "menu_open_verified" if args.probe_menu and after["state_available"] and after["paused"]
+                else "restart_control_transition_observed" if args.probe_restart
+                else "menu_open_unverified"
+            ),
+            "input": {"logical": point, "move_settle_delay": driver.UI_CONTROL_MOVE_SETTLE_DELAY},
             "before": before,
             "after": after,
-            "restart_click_sent": False,
+            "restart_click_sent": bool(args.probe_restart),
             "confirmation_sent": False,
         }, indent=2, sort_keys=True))
     finally:

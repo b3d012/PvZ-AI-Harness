@@ -21,12 +21,16 @@ def main():
     parser.add_argument("--seed-types", type=int, nargs="*")
     parser.add_argument("--automatic", action="store_true",
                         help="Use the validated normal UI restart path (sends input).")
+    parser.add_argument("--known-pause-menu", action="store_true",
+                        help="Attest that PvZ's normal Menu is visibly open; only valid with --automatic.")
     parser.add_argument("--yes", action="store_true",
                         help="Required with --automatic to authorize live input.")
     args = parser.parse_args()
 
     if args.automatic and not args.yes:
         raise SystemExit("--automatic requires --yes because it sends normal PvZ input")
+    if args.known_pause_menu and not args.automatic:
+        raise SystemExit("--known-pause-menu requires --automatic")
 
     def operator_restart(_runtime):
         input("Use PvZ's normal Restart Level control now. Press Enter only after confirming it. ")
@@ -36,7 +40,8 @@ def main():
         focus_mode=FocusMode.AUTO if args.automatic else FocusMode.MANUAL,
     ))
     runtime.attach()
-    driver = NormalUiRestartDriver() if args.automatic else CallbackRestartDriver(operator_restart)
+    driver = (NormalUiRestartDriver(known_pause_menu=args.known_pause_menu)
+              if args.automatic else CallbackRestartDriver(operator_restart))
     support = TrainingEpisodeSupport(runtime, restart_driver=driver)
     try:
         result = support.reset_current_level(ResetExpectation(

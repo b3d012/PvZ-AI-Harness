@@ -97,12 +97,20 @@ class NormalUiRestartDriver:
     MENU_BUTTON = (739, 13)
     RESTART_LEVEL_BUTTON = (400, 358)
     CLIENT_SIZE = (800, 600)
+    # GOTY 1.2.0.1073 accepted Menu only after cursor relocation had settled
+    # for 100 ms. This is deliberately UI-driver-local: board controller
+    # actions retain their established immediate-click behavior.
+    UI_CONTROL_MOVE_SETTLE_DELAY = 0.10
 
     def __init__(self, *, transition_timeout_seconds: float = 1.0,
-                 poll_interval_seconds: float = 0.05, sleeper: Any = time.sleep) -> None:
+                 poll_interval_seconds: float = 0.05, sleeper: Any = time.sleep,
+                 known_pause_menu: bool = False) -> None:
         self.transition_timeout_seconds = transition_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self._sleeper = sleeper
+        # Only an explicit caller attestation from a preceding Menu probe may
+        # enable this; GameState.paused alone is insufficient UI provenance.
+        self.known_pause_menu = known_pause_menu
 
     def request_restart(self, runtime: Any) -> ResetControlResult:
         before_state = runtime.observe()
@@ -122,7 +130,12 @@ class NormalUiRestartDriver:
         if not self._validate_client(runtime):
             return ResetControlResult(False, "unsupported_client_geometry")
         if bool(before_state.paused):
-            return self._restart_paused(runtime, before)
+            # GameState records pause, not the owning modal. Restart Level is
+            # safe only when this driver opened the normal Menu itself; an
+            # externally paused board could be a different dialog/state.
+            if not self.known_pause_menu:
+                return ResetControlResult(False, "paused_menu_not_verified")
+            return self._restart_open_menu(runtime, before)
         return self._restart_playing(runtime, before)
 
     def _validate_client(self, runtime: Any) -> bool:
@@ -132,30 +145,32 @@ class NormalUiRestartDriver:
             return False
         return (int(area.width), int(area.height)) == self.CLIENT_SIZE
 
-    def _restart_paused(self, runtime: Any, before: OutcomeEvidence) -> ResetControlResult:
-        try:
-            runtime.session.input_backend.press_enter()
-        except ControllerInputError as error:
-            return ResetControlResult(False, f"resume_input_failed:{type(error).__name__}:{error}")
-        if not self._wait_for(runtime, before, paused=False):
-            return ResetControlResult(False, "pause_dialog_resume_not_verified")
-        return self._restart_playing(runtime, before)
-
     def _restart_playing(self, runtime: Any, before: OutcomeEvidence) -> ResetControlResult:
         if not self._is_live_board(runtime, before, paused=False):
             return ResetControlResult(False, "playing_state_not_verified")
         try:
-            runtime.session.input_backend.left_click(*self.MENU_BUTTON)
+            runtime.session.input_backend.left_click(
+                *self.MENU_BUTTON,
+                move_settle_delay=self.UI_CONTROL_MOVE_SETTLE_DELAY,
+            )
         except ControllerInputError as error:
             return ResetControlResult(False, f"menu_input_failed:{type(error).__name__}:{error}")
         if not self._wait_for(runtime, before, paused=True):
             return ResetControlResult(False, "menu_transition_not_verified")
+        return self._restart_open_menu(runtime, before)
+
+    def _restart_open_menu(self, runtime: Any, before: OutcomeEvidence) -> ResetControlResult:
+        if not self._is_live_board(runtime, before, paused=True):
+            return ResetControlResult(False, "menu_state_not_verified")
         try:
-            runtime.session.input_backend.left_click(*self.RESTART_LEVEL_BUTTON)
+            runtime.session.input_backend.left_click(
+                *self.RESTART_LEVEL_BUTTON,
+                move_settle_delay=self.UI_CONTROL_MOVE_SETTLE_DELAY,
+            )
         except ControllerInputError as error:
             return ResetControlResult(False, f"restart_input_failed:{type(error).__name__}:{error}")
-        if not self._is_live_board(runtime, before, paused=True):
-            return ResetControlResult(False, "restart_menu_state_lost")
+        if not self._wait_for(runtime, before, paused=True):
+            return ResetControlResult(False, "restart_control_transition_not_verified")
         try:
             # If the restart control was absent, Enter only closes Options and
             # the unchanged Board is rejected by the outer reset verifier.
