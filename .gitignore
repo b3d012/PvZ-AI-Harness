@@ -8,6 +8,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
+/build/
+/dist/
 
 # Python environments
 .venv/
@@ -47,3 +50,9 @@ env/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# LaTeX build products
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz

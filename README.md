@@ -1,8 +1,22 @@
-# Plants vs. Zombies Deep Learning
+# PvZ AI Harness
 
 A reverse-engineering and reinforcement-learning project built around the original Windows release of **Plants vs. Zombies: Game of the Year Edition**.
 
 > **Current milestone: Phase 3.5 complete — the Phase 1–3.5 PvZ AI Harness is frozen at v0.1.0. Phase 4 deep-reinforcement-learning work is next.**
+
+## Quick start
+
+```powershell
+git clone --recurse-submodules https://github.com/b3d012/PvZ-DeepLearning.git
+cd PvZ-DeepLearning
+python -m pip install -e .
+pvz-runtime-test --pretty
+```
+
+`pvz-runtime-test` is read-only: it prints a runtime-health snapshot and never
+sends desktop input. See the [integration guide](docs/HARNESS.md),
+[examples](examples), [changelog](CHANGELOG.md), and
+[third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Architecture
 
@@ -235,15 +249,22 @@ Files beginning with `tools/live_test_` intentionally interact with a running ga
 
 ## Next — Phase 4
 
-Phase 3 is complete and Environment v1 is frozen. Phase 4 will add deep-RL
-training after the dedicated runtime live checklist is completed, while
-preserving the Phase 1--3 contracts:
+Phase 3.5 is complete and the Environment v1/runtime harness is frozen. Phase
+4 will add deep-RL training above the Phase 1--3.5 contracts:
 
 1. deep-RL baseline design and implementation;
 2. checkpoint/run metadata using the Environment v1 contract helper;
 3. evaluation against the frozen random and scripted baselines.
 
-The first deep-RL baseline remains out of scope for the runtime milestone.
+The first deep-RL baseline remains out of scope for v0.1.0. Training
+hyperparameters, checkpoints, and experiment configurations must live above
+the frozen reader/controller/environment/runtime boundary.
+
+## License
+
+This project is licensed under [GPL-3.0-only](LICENSE). See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the `pvztoolkit` research
+submodule, dependency notices, and provenance scope.
 
 ## References
 

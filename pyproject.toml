@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pvz-ai-harness"
+version = "0.1.0"
+description = "A Windows-safe, versioned AI integration harness for Plants vs. Zombies GOTY."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0-only"}
+authors = [{name = "PvZ-DeepLearning contributors"}]
+keywords = ["plants-vs-zombies", "reinforcement-learning", "reverse-engineering", "windows"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = ["numpy==2.5.2", "psutil==7.2.2", "pymem==1.14.0"]
+
+[project.urls]
+Homepage = "https://github.com/b3d012/PvZ-DeepLearning"
+Repository = "https://github.com/b3d012/PvZ-DeepLearning"
+Issues = "https://github.com/b3d012/PvZ-DeepLearning/issues"
+
+[project.scripts]
+pvz-monitor = "pvz_runtime.monitor:launch_monitor"
+pvz-runtime-test = "pvz_runtime.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pvz_reader*", "pvz_controller*", "pvz_env*", "pvz_runtime*"]
