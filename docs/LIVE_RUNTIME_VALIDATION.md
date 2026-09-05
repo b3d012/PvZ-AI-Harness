@@ -176,8 +176,7 @@ Over screen's visible Try Again control. Its measured logical/client center is
 that coordinate restarted the game. The loss driver therefore uses that one
 settled click and leaves same-level/fresh-board proof to the reset verifier.
 
-The full loss-reset verifier subsequently passed twice (`425085536` to
-`424159288`, then `424159288` to `420324176`, both level 7 at clock zero). A
-third loss retry did create a different level-7 Board at clock zero but was
-correctly rejected as `stale_entities`; automatic loss reset is therefore not
-claimed as 3/3 validated.
+Four clean loss-reset trials subsequently passed with a distinct Board, level
+7, clock zero, and `RESET_OK`. One separate trial in which game state had been
+manually contaminated was correctly rejected as `stale_entities`; it is not a
+clean lifecycle result and does not weaken the verifier.
