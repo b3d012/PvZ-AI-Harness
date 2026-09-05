@@ -9,7 +9,7 @@ description = "A Windows-safe, versioned AI integration harness for Plants vs. Z
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "GPL-3.0-only"}
-authors = [{name = "PvZ-DeepLearning contributors"}]
+authors = [{name = "PvZ-AI-Harness contributors"}]
 keywords = ["plants-vs-zombies", "reinforcement-learning", "reverse-engineering", "windows"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -24,6 +24,7 @@ dependencies = ["numpy==2.5.2", "psutil==7.2.2", "pymem==1.14.0"]
 Homepage = "https://github.com/b3d012/PvZ-AI-Harness"
 Repository = "https://github.com/b3d012/PvZ-AI-Harness"
 Issues = "https://github.com/b3d012/PvZ-AI-Harness/issues"
+Downstream = "https://github.com/b3d012/PvZ-DeepLearning"
 
 [project.scripts]
 pvz-monitor = "pvz_runtime.monitor:launch_monitor"

@@ -1,210 +1,162 @@
 # AGENTS.md
 
-Repository instructions for coding agents working on **PvZ-DeepLearning**.
-
-These instructions are intended to keep future Codex/agent work consistent with the architecture already validated through Phase 2. Read this file before making substantial changes.
+Repository instructions for coding agents working on **PvZ-AI-Harness**.
 
 ## Project state
 
-- Repository: `b3d012/PvZ-DeepLearning`
-- Current milestone: **Phase 3.5 complete — PvZ AI Harness v0.1.0 frozen**
-- Next milestone: **Phase 4 — deep reinforcement learning**
+- Repository: `b3d012/PvZ-AI-Harness`
+- Release: **v0.1.0**
+- Status: **Phase 1–3.5 complete and frozen**
+- Downstream learning project: `b3d012/PvZ-DeepLearning`
 - Target game: **Plants vs. Zombies GOTY 1.2.0.1073**
 - Target platform: **Windows**
 
-Current architecture:
+This repository is the reusable game-integration harness. Deep-RL models, hyperparameters, tuning, checkpoints, and evaluation research belong in the downstream `PvZ-DeepLearning` repository.
+
+## Frozen architecture
 
 ```text
 PvZ GOTY process
-    ↓ read-only memory observation
+    ↓ read-only observation
 GameState v1
     ↓
-deterministic EncodedObservation v1
+Observation v1 + deterministic Action v1 mask
     ↓
-semantic Action v1 / legality masking
+Environment v1
     ↓
-semantic Controller v1
-    ↓ normal Windows mouse input
+Controller v1 / PvZRuntime
+    ↓ ordinary verified Windows input
 PvZ GOTY process
 ```
 
-Runtime ownership is implemented in `pvz_runtime` beneath Environment v1:
+Runtime ownership:
 
 ```text
-PvZSession (PID-bound process, MemoryReader, PvZ window)
+PvZSession
     ↓
 GamePhaseDetector + EnvironmentHealth
     ↓
-PvZRuntime (focus/pause/watchdog/actions/snapshots)
+PvZRuntime
     ↓ reader/controller adapters
-frozen pvz_env.PvZEnvironment v1
+PvZEnvironment v1
 ```
 
 ## Frozen public contracts
 
-Treat the following as stable interfaces unless the user explicitly approves a breaking change:
+Treat these as stable unless the user explicitly approves/version-controls a change:
 
-- `GameState v1`
-- `pvz_reader` observation semantics
-- `pvz_reader/placement.py` as the source of deterministic placement legality/action masks
-- `Controller v1` public API
-- logical 800×600 controller coordinate model
-- `Observation v1` schema, shape `(5534,)`, normalization, and ordering
-- `Action v1` schema, 541-index WAIT/PLANT layout, and explicit active-row contract
-- Environment v1 reset/lifecycle/step/reconciliation contracts
-- Reward v1 schema and default `RewardSpec`
-- transition JSONL schema v2
-- baseline policy/evaluation API
-- `PvZSession`, `PvZRuntime`, `GamePhase`, `FocusMode`, `EnvironmentHealth`,
-  public runtime snapshots, and Environment v1 runtime adapters
+- `GameState v1` and reader semantics;
+- `pvz_reader/placement.py` legality rules;
+- Controller v1 public API and logical 800×600 coordinate model;
+- Observation v1 schema, shape `(5534,)`, normalization, ordering;
+- Action v1 schema, 541 WAIT/PLANT actions, explicit active-row contract;
+- Environment v1 reset/lifecycle/step/reconciliation behavior;
+- Reward v1 and default `RewardSpec`;
+- transition JSONL schema v2;
+- baseline policy/evaluation API;
+- `PvZSession`, `PvZRuntime`, `GamePhase`, `FocusMode`, `EnvironmentHealth`, runtime snapshots, and Environment v1 runtime adapters.
 
-Do **not** casually redesign or merge these layers together during later phases.
+If an incompatible change is actually required, version it deliberately and preserve compatibility where practical. Do not silently mutate a frozen contract for a downstream model's convenience.
 
-If a Phase 4 task appears to require changing a frozen interface:
-
-1. stop before making the breaking change;
-2. explain why the current contract is insufficient;
-3. propose the smallest compatible change;
-4. bump the applicable schema/version where appropriate and consider compatibility;
-5. update tests and the technical report;
-6. wait for explicit approval if the change is architectural or breaks existing callers/tests.
-
-## Architectural rules
+## Harness responsibilities
 
 ### Observation
 
-- Game observation is read-only.
-- Version-specific memory offsets/layouts belong in `pvz_reader/versions.py`.
-- Do not scatter raw target-build offsets through unrelated modules.
-- Do not put controller/action state inside `GameState` merely for convenience.
-- Preserve raw structured game observation separately from future encoded neural-network observations.
+- Memory observation is read-only.
+- Version-specific offsets/layouts belong in `pvz_reader/versions.py`.
+- Do not scatter raw offsets into unrelated modules.
+- Keep raw `GameState` separate from encoded learning observations.
 
-### Placement and action legality
+### Legality
 
-- Use `pvz_reader/placement.py` for deterministic placement rules.
-- Do not make a future neural network relearn rules that are already known deterministically.
-- Future RL action masks should derive from the existing legality layer where possible.
+- `pvz_reader/placement.py` is the deterministic source of placement truth.
+- Do not make downstream agents relearn deterministic rules already known to the harness.
 
-### Control
+### Control and runtime
 
-- Normal gameplay actions use `pvz_controller` and standard Windows mouse input.
-- Do not replace Controller v1 with game-memory writes for ordinary agent actions.
-- Maintain the semantic-action abstraction: higher layers request actions such as plant/shovel/collect rather than raw screen clicks whenever practical.
-- New high-level live callers should use `PvZRuntime.execute()` so process,
-  reader, Board, phase, pause, window, focus, and freshness gates run before
-  Controller v1. The Environment v1 adapters use this same path.
-
-### Runtime infrastructure
-
-- `pvz_runtime.session.PvZSession` owns process discovery, PID attachment,
-  PID-bound window identity, process-death detection, controlled reattachment,
-  and clean detach.
-- `pvz_runtime.phase.GamePhaseDetector` is conservative. Frozen GameState v1
-  can distinguish Board presence, pause, and clock-derived READY/PLAYING, but
-  cannot authoritatively split menu/loading/results or detect natural win/loss.
-- `pvz_runtime.runtime.PvZRuntime` owns MANUAL/AUTO focus policy, state age,
-  health/watchdog evaluation, idempotent verified pause/resume, semantic action
-  gating, snapshots, and Environment v1 adapters.
-- MANUAL mode must never restore focus implicitly. AUTO mode may restore focus
-  only for the PID-bound window and must verify it is foreground before input.
-- Explicit operator Focus may restore a minimized PID-bound window and use
-  documented Win32 input-queue attachment/activation calls, but exact
-  foreground HWND verification remains mandatory before any input.
-- Runtime Escape input uses one `MapVirtualKey`-derived scan-code down/up pair.
-  Never send virtual-key plus scan-code fallbacks for one logical pause request;
-  a duplicate Escape would undo the requested transition.
-- Do not create alternate session/focus/pause logic in tools or UIs. The Tk
-  monitor is a frontend to the same runtime API.
-- Runtime operations are serialized. Do not add autonomous input loops or
-  uncontrolled reconnect polling.
-- Monitor user commands must enter its bounded FIFO and execute once. Automatic
-  refresh is coalesced, never queued, and must yield to pending commands. Never
-  return to a shared-Future design that silently drops button presses.
+- Normal actions use semantic Controller v1 operations and ordinary Windows input.
+- High-level live callers should use `PvZRuntime` so process, reader, Board, phase, pause, window, focus, and freshness gates run before input.
+- MANUAL focus mode never steals focus implicitly.
+- AUTO mode may focus only the exact PID-bound PvZ window and must verify foreground identity before input.
+- Pause/resume uses one mapped scan-code Escape down/up pair and verifies the resulting memory state.
+- Never create alternate session/focus/pause implementations in tools or UI code.
+- Runtime operations remain serialized and fail closed.
+- Monitor commands use the bounded FIFO; automatic refresh is coalesced and must never discard operator commands.
 
 ### Live interaction
 
-- Offline tests must never intentionally click the user's desktop or require a running PvZ process.
-- Interactive tests/tools must be clearly named `live_test_*`.
-- Do not silently turn an offline test into a live/interactive test.
+- Offline tests/CI must never click the desktop or require a running game.
+- Live tools must be clearly named and require explicit operator intent.
+- Do not claim a live validation passed unless it actually ran against the game.
+
+## Downstream relationship
+
+Phase 4+ learning now lives at:
+
+`https://github.com/b3d012/PvZ-DeepLearning`
+
+That project pins a harness release instead of copying this source. If downstream work exposes a genuine harness deficiency:
+
+1. confirm the issue belongs below the learning boundary;
+2. implement the smallest compatible fix here;
+3. add offline tests and any necessary live validation;
+4. update the harness technical report/docs;
+5. release a new harness version (`v0.1.x` for compatible fixes, a larger version change for broader contract changes);
+6. deliberately upgrade the downstream dependency and record the new harness version in experiment metadata.
+
+Do not add PyTorch, TensorFlow, Stable-Baselines3, Gymnasium, Optuna, W&B, model checkpoints, or training configurations to this harness merely because the downstream project uses them.
 
 ## Repository rules
 
 Never commit:
 
-- the proprietary Plants vs. Zombies game installation;
-- game executables/assets;
-- Python caches;
-- local virtual environments;
-- raw temporary reverse-engineering dumps unless explicitly retained as durable documentation;
-- model checkpoints;
-- large generated datasets;
-- local secrets or `.env` files.
+- Plants vs. Zombies executables/assets or a local game installation;
+- caches, local environments, temporary reverse-engineering dumps;
+- model checkpoints/datasets/training logs;
+- secrets or `.env` files.
 
-Follow `.gitignore` and extend it when a new generated-artifact category is introduced.
+The `references/pvztoolkit` Git submodule is research/reference material, not the runtime game engine. Preserve its provenance and license notices.
 
-The `references/pvztoolkit` directory is a Git submodule used as a reverse-engineering reference. It is not the runtime game engine for the AI agent.
+## Dependencies
 
-## Current dependency policy
+The harness intentionally remains lean. Current project metadata and environment files are the source of truth. When changing a real harness dependency, update dependency docs and verify Windows CI.
 
-Phase 1–2 intentionally uses a lean environment defined by:
+## Validation
 
-- `environment.yml`
-- `requirements.txt`
-
-Do not add large ML/RL dependencies until the phase that actually uses them.
-
-When adding or changing dependencies:
-
-1. update `environment.yml`;
-2. update `requirements.txt` when applicable;
-3. update `docs/DEPENDENCIES.md`;
-4. verify Windows CI still passes.
-
-## Validation required before completing implementation tasks
-
-Run the complete offline test suite:
+For normal source changes run:
 
 ```powershell
+python -m compileall -q pvz_reader pvz_controller pvz_env pvz_runtime tools examples
 python -m unittest discover -s tools -p "test_*.py" -v
 ```
 
-Also compile the Python source tree when practical:
-
-```powershell
-python -m compileall -q pvz_reader pvz_controller pvz_env pvz_runtime tools
-```
-
-For changes affecting live reader/controller behavior, also identify the relevant `tools/live_test_*` validation that should be run manually against the real game.
-
-Runtime changes use `tools/live_test_runtime.py`; the operator monitor is
-`tools/live_monitor_environment.py`. Both are live-only and excluded from CI.
-
-Do not claim a live validation passed unless it was actually run against the game.
+Relevant live changes also require the appropriate `tools/live_test_*` procedure. Runtime changes use `tools/live_test_runtime.py`; the operator monitor is `pvz-monitor` / `tools/live_monitor_environment.py`.
 
 ## Git workflow
 
-For substantial implementation work:
+For substantive harness fixes:
 
-1. begin from current `main`;
+1. start from current `main`;
 2. create a focused branch;
-3. implement one bounded task/subphase;
+3. change only the harness concern being fixed;
 4. add/update tests;
-5. run validation;
-6. commit with a descriptive message;
-7. summarize the handoff;
-8. do not start the next subphase unless requested.
+5. run required validation;
+6. update docs/report if behavior or a contract changed;
+7. open a PR;
+8. release/version only after validation.
 
-Prefer narrowly scoped branches such as:
+Avoid mixing Phase 4 experiment work into harness PRs.
 
-```text
-feat/phase-3.1-observation-encoder
-feat/phase-3.2-action-space
-fix/environment-step-timing
-```
+## Documentation roles
 
-Avoid giant branches that implement an entire multi-stage phase without checkpoints.
+- `README.md`: public harness overview/setup/status.
+- `docs/HARNESS.md`: integration guide for downstream developers.
+- `docs/RUNTIME.md`: runtime/session safety contract.
+- `docs/LIVE_RUNTIME_VALIDATION.md`: recorded live validation.
+- `docs/technical-development-report.tex`: cumulative Phase 1–3.5 engineering report.
+- `AGENTS.md`: coding-agent rules and frozen boundaries.
 
-## Phase workflow
+## Current handoff
 
 During a phase:
 
