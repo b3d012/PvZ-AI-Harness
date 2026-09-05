@@ -202,14 +202,14 @@ class ControllerPlantTests(unittest.TestCase):
         self.assertEqual(result.reason, "clicks_issued")
         self.assertTrue(result.attempted)
         self.assertIsNone(result.success)
-        self.assertEqual(backend.clicks, [(169, 43), (360, 330)])
+        self.assertEqual(backend.clicks, [(179, 43), (320, 330)])
         self.assertEqual(backend.move_settle_delays, [0.0, TARGET_TILE_MOVE_SETTLE_DELAY])
         self.assertEqual(
             backend.events,
             [
-                ("click", 169, 43),
+                ("click", 179, 43),
                 ("sleep", SEED_SELECTION_SETTLE_DELAY),
-                ("click", 360, 330),
+                ("click", 320, 330),
             ],
         )
 
@@ -283,7 +283,7 @@ class ControllerPlantTests(unittest.TestCase):
         self.assertEqual(result.reason, "input_failed:simulated input failure")
         self.assertTrue(result.attempted)
         self.assertFalse(result.success)
-        self.assertEqual(backend.clicks, [(169, 43)])
+        self.assertEqual(backend.clicks, [(179, 43)])
 
     def test_plant_verification_detects_expected_plant(self):
         expected_seed = seed()
@@ -310,7 +310,7 @@ class ControllerShovelTests(unittest.TestCase):
         self.assertEqual(result.reason, "clicks_issued")
         self.assertTrue(result.attempted)
         self.assertIsNone(result.success)
-        self.assertEqual(backend.clicks, [(491, 36), (360, 330)])
+        self.assertEqual(backend.clicks, [(491, 36), (320, 330)])
         self.assertEqual(
             backend.move_settle_delays,
             [0.0, TARGET_TILE_MOVE_SETTLE_DELAY],
@@ -320,7 +320,7 @@ class ControllerShovelTests(unittest.TestCase):
             [
                 ("click", 491, 36),
                 ("sleep", SHOVEL_SELECTION_SETTLE_DELAY),
-                ("click", 360, 330),
+                ("click", 320, 330),
             ],
         )
 

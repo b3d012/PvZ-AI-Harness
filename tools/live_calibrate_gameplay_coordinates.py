@@ -22,9 +22,27 @@ def cursor_client(backend, area):
     return backend.screen_to_client(*screen, area)
 
 
-def sample(prompt, backend, area):
+def sample(prompt, backend):
     input(prompt + " Press Enter to record; no input is sent to PvZ. ")
-    return cursor_client(backend, area)
+    # The PvZ window can move while the operator is positioning the cursor.
+    # Resolve the current client origin for every sample rather than applying
+    # stale screen-to-client geometry.
+    area = backend.get_client_area()
+    if (area.width, area.height) != (800, 600):
+        raise SystemExit("FAIL: client geometry changed during calibration")
+    measured = cursor_client(backend, area)
+    if not (0 <= measured[0] < area.width and 0 <= measured[1] < area.height):
+        raise SystemExit("FAIL: measured cursor coordinate is outside the PvZ client")
+    return measured
+
+
+def measurement_record(*, measured, predicted, **fields):
+    return {
+        **fields,
+        "measured_client": measured,
+        "predicted_client": predicted,
+        "delta": {"x": measured[0] - predicted[0], "y": measured[1] - predicted[1]},
+    }
 
 
 def main():
@@ -55,29 +73,28 @@ def main():
             for seed in state.seeds:
                 measured = sample(
                     f"Move cursor to center of slot {seed.slot} ({seed.name}).",
-                    backend, area,
+                    backend,
                 )
-                report["seed_packets"].append({
-                    "slot": seed.slot, "type_id": seed.type_id, "name": seed.name,
-                    "measured_client": measured,
-                    "predicted_client": seed_slot_to_client(
+                report["seed_packets"].append(measurement_record(
+                    slot=seed.slot, type_id=seed.type_id, name=seed.name,
+                    measured=measured, predicted=seed_slot_to_client(
                         seed.slot, seed_count=len(state.seeds),
                     ),
-                })
+                ))
         if args.rows:
             for row in range(5):
-                measured = sample(f"Move cursor to visible lane {row} center at column 4.", backend, area)
-                report["row_centers"].append({
-                    "row": row, "measured_client": measured,
-                    "predicted_client": tile_to_client(row, 4, scene=state.scene),
-                })
+                measured = sample(f"Move cursor to visible lane {row} center at column 4.", backend)
+                report["row_centers"].append(measurement_record(
+                    row=row, measured=measured,
+                    predicted=tile_to_client(row, 4, scene=state.scene),
+                ))
         if args.columns:
             for col in (0, 4, 8):
-                measured = sample(f"Move cursor to tile center row 2, column {col}.", backend, area)
-                report["column_centers"].append({
-                    "col": col, "measured_client": measured,
-                    "predicted_client": tile_to_client(2, col, scene=state.scene),
-                })
+                measured = sample(f"Move cursor to tile center row 2, column {col}.", backend)
+                report["column_centers"].append(measurement_record(
+                    col=col, measured=measured,
+                    predicted=tile_to_client(2, col, scene=state.scene),
+                ))
         print(json.dumps(report, indent=2, sort_keys=True))
     finally:
         runtime.close()

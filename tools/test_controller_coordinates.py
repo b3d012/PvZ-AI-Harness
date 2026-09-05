@@ -18,16 +18,16 @@ from pvz_controller.coordinates import (
 
 class ControllerCoordinateTests(unittest.TestCase):
     def test_normal_five_lane_tile_centers(self):
-        self.assertEqual(tile_to_client(0, 0, scene=0), (120, 130))
-        self.assertEqual(tile_to_client(4, 8, scene=0), (760, 530))
+        self.assertEqual(tile_to_client(0, 0, scene=0), (80, 130))
+        self.assertEqual(tile_to_client(4, 8, scene=0), (720, 530))
 
     def test_pool_and_fog_six_lane_tile_centers(self):
-        self.assertEqual(tile_to_client(0, 0, scene=2), (120, 122))
-        self.assertEqual(tile_to_client(5, 8, scene=3), (760, 547))
+        self.assertEqual(tile_to_client(0, 0, scene=2), (80, 122))
+        self.assertEqual(tile_to_client(5, 8, scene=3), (720, 547))
 
     def test_roof_tile_centers_follow_input_slope(self):
-        self.assertEqual(tile_to_client(0, 0, scene=4), (120, 210))
-        self.assertEqual(tile_to_client(0, 4, scene=4), (440, 130))
+        self.assertEqual(tile_to_client(0, 0, scene=4), (80, 210))
+        self.assertEqual(tile_to_client(0, 4, scene=4), (400, 130))
 
     def test_invalid_tile_rejected(self):
         for row, col in ((-1, 0), (6, 0), (0, -1), (0, 9)):
@@ -36,13 +36,13 @@ class ControllerCoordinateTests(unittest.TestCase):
                     tile_to_client(row, col)
 
     def test_six_packet_seed_slot_centers(self):
-        self.assertEqual(seed_slot_to_client(0, seed_count=6), (110, 43))
-        self.assertEqual(seed_slot_to_client(5, seed_count=6), (405, 43))
+        self.assertEqual(seed_slot_to_client(0, seed_count=6), (120, 43))
+        self.assertEqual(seed_slot_to_client(5, seed_count=6), (415, 43))
 
     def test_seed_packet_positions_depend_on_packet_count(self):
-        self.assertEqual(seed_slot_to_client(0, seed_count=8), (106, 43))
-        self.assertEqual(seed_slot_to_client(7, seed_count=8), (484, 43))
-        self.assertEqual(seed_slot_to_client(9, seed_count=10), (563, 43))
+        self.assertEqual(seed_slot_to_client(0, seed_count=8), (116, 43))
+        self.assertEqual(seed_slot_to_client(7, seed_count=8), (494, 43))
+        self.assertEqual(seed_slot_to_client(9, seed_count=10), (573, 43))
 
     def test_invalid_seed_slot_rejected(self):
         for slot in (-1, 10):

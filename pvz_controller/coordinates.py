@@ -17,17 +17,20 @@ MAX_SEED_SLOTS = 10
 
 # Board::PixelToGridX/Y in the supported game maps lawn cells from x=80 in
 # 80-pixel columns and y=80 in either 100-pixel (normal) or 85-pixel
-# (pool/fog) rows.  These are input-cell centres, not Plant render origins.
-TILE_FIRST_CENTER_X = 120
+# (pool/fog) rows. Live Adventure 1-7 calibration validates x=80 as the
+# robust input point in the first column; it is not a render-origin centre.
+TILE_FIRST_CENTER_X = 80
 TILE_COLUMN_STEP = 80
 NORMAL_TILE_FIRST_CENTER_Y = 130
 NORMAL_TILE_ROW_STEP = 100
 POOL_TILE_FIRST_CENTER_Y = 122
 POOL_TILE_ROW_STEP = 85
 
-# Seed packets are 50x70 logical pixels.  Board::GetSeedPacketPositionX
-# supplies an origin that varies with the packet count; click their centres.
-SEED_PACKET_WIDTH = 50
+# Board::GetSeedPacketPositionX supplies an origin that varies with packet
+# count. The supported client's live six-packet calibration selects at x=120
+# for origin x=85, so the robust input point is origin +35 rather than the
+# nominal 25-pixel bounding-box midpoint.
+SEED_PACKET_INPUT_OFFSET_X = 35
 SEED_FIRST_PACKET_X_BY_COUNT = {
     **{count: 85 for count in range(1, 8)},
     8: 81,
@@ -101,7 +104,7 @@ def seed_slot_to_client(slot: int, *, seed_count: int = MAX_SEED_SLOTS) -> tuple
 
     return (
         SEED_FIRST_PACKET_X_BY_COUNT[seed_count]
-        + SEED_PACKET_WIDTH // 2
+        + SEED_PACKET_INPUT_OFFSET_X
         + slot * SEED_SLOT_STEP_BY_COUNT[seed_count],
         SEED_CENTER_Y,
     )
