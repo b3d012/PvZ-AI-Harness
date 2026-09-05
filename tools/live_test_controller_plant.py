@@ -2,6 +2,7 @@
 
 import sys
 import time
+import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +55,24 @@ def _choose_ordinary_placement(state):
     return None
 
 
+def _choose_requested_placement(state, seed_slot: int, row: int, col: int):
+    seed = next((item for item in state.seeds if item.slot == seed_slot), None)
+    if seed is None:
+        return None, f"ABORTED: seed slot {seed_slot} is not present. No clicks issued."
+    if not (seed.ready and seed.affordable and seed.actionable):
+        return None, (
+            f"ABORTED: seed slot {seed_slot} ({seed.name}) is not ready, affordable, "
+            "and actionable. No clicks issued."
+        )
+    placement = can_plant(state, seed_slot, row, col)
+    if not placement.valid:
+        return None, (
+            f"ABORTED: requested target row={row} col={col} is not legal "
+            f"({placement.reason}). No clicks issued."
+        )
+    return (seed, (row, col)), None
+
+
 def _print_plant_stage(stage: str) -> None:
     messages = {
         "clicking_seed_packet": "Clicking seed packet...",
@@ -67,6 +86,17 @@ def _print_plant_stage(stage: str) -> None:
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seed-slot", type=int)
+    parser.add_argument("--row", type=int)
+    parser.add_argument("--col", type=int)
+    args = parser.parse_args()
+    requested_values = (args.seed_slot, args.row, args.col)
+    if any(value is not None for value in requested_values) and not all(
+        value is not None for value in requested_values
+    ):
+        raise SystemExit("--seed-slot, --row, and --col must be supplied together")
+
     reader = PvZGameStateReader(MemoryReader(PROCESS_NAME))
     state = reader.read()
 
@@ -84,7 +114,15 @@ def main():
             f"affordable={seed.affordable} actionable={seed.actionable}"
         )
 
-    choice = _choose_ordinary_placement(state)
+    if all(value is not None for value in requested_values):
+        choice, error = _choose_requested_placement(
+            state, args.seed_slot, args.row, args.col,
+        )
+        if error is not None:
+            print(error)
+            return
+    else:
+        choice = _choose_ordinary_placement(state)
     if choice is None:
         print(
             "ABORTED: no ready, affordable Peashooter or Sunflower has a legal "
@@ -121,19 +159,9 @@ def main():
         print("ABORTED: level is no longer active and unpaused; no clicks issued.")
         return
 
-    fresh_seed = next(
-        (
-            seed
-            for seed in fresh_state.seeds
-            if seed.slot == chosen_seed.slot
-            and seed.type_id == chosen_seed.type_id
-            and seed.name in SIMPLE_ORDINARY_PLANTS
-            and seed.ready
-            and seed.affordable
-            and seed.actionable
-        ),
-        None,
-    )
+    fresh_seed = next((seed for seed in fresh_state.seeds if seed.slot == chosen_seed.slot
+                       and seed.type_id == chosen_seed.type_id
+                       and seed.ready and seed.affordable and seed.actionable), None)
     if fresh_seed is None:
         print("ABORTED: selected seed became stale; no clicks issued. Rerun.")
         return
@@ -146,7 +174,7 @@ def main():
         )
         return
 
-    target_logical = tile_to_client(row, col)
+    target_logical = tile_to_client(row, col, scene=fresh_state.scene)
     try:
         target_screen = backend.logical_to_screen(
             *target_logical,

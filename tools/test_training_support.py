@@ -20,12 +20,14 @@ from pvz_runtime import (
 class AddressMemory:
     def __init__(self, *, lawn=0x1000, board=0x2000, scene=3, result=0, complete=False,
                  award_spawned=False, fade_out_counter=-1, next_survival_stage_counter=0,
-                 error=None):
+                 cutscene_time=11000, error=None):
         self.lawn, self.board, self.scene = lawn, board, scene
         self.result, self.complete, self.error = result, complete, error
         self.award_spawned = award_spawned
         self.fade_out_counter = fade_out_counter
         self.next_survival_stage_counter = next_survival_stage_counter
+        self.cutscene_time = cutscene_time
+        self.cutscene = 0x3000
         self.o = OFFSETS[PVZ_VERSION]
 
     def _maybe_fail(self):
@@ -38,6 +40,8 @@ class AddressMemory:
             return self.lawn
         if address == self.lawn + self.o["board"]:
             return self.board
+        if address == self.board + self.o["cut_scene"]:
+            return self.cutscene
         raise AssertionError(hex(address))
 
     def read_int(self, address):
@@ -50,6 +54,8 @@ class AddressMemory:
             return self.fade_out_counter
         if address == self.board + self.o["next_survival_stage_counter"]:
             return self.next_survival_stage_counter
+        if address == self.cutscene + self.o["cut_scene_time"]:
+            return self.cutscene_time
         raise AssertionError(hex(address))
 
     def read_bool(self, address):
@@ -83,6 +89,11 @@ class OutcomeTests(unittest.TestCase):
     def test_lost_from_zombies_won_scene(self):
         evidence = read_outcome(AddressMemory(scene=GameScene.ZOMBIES_WON))
         self.assertEqual(evidence.outcome, GameOutcome.LOST)
+        self.assertTrue(evidence.loss_screen_ready)
+
+    def test_lost_cutscene_is_not_ready_before_native_dialog(self):
+        evidence = read_outcome(AddressMemory(scene=GameScene.ZOMBIES_WON, cutscene_time=10990))
+        self.assertFalse(evidence.loss_screen_ready)
 
     def test_terminal_result_survives_missing_board(self):
         won = read_outcome(AddressMemory(board=0, scene=GameScene.AWARD, result=BoardResult.WON))
@@ -272,10 +283,12 @@ class RestartInput:
 
 
 class UiDriverRuntime:
-    def __init__(self, outcome=GameOutcome.RUNNING, *, paused=False, fail=None, opens_menu=True):
+    def __init__(self, outcome=GameOutcome.RUNNING, *, paused=False, fail=None, opens_menu=True,
+                 loss_screen_ready=True):
         self.outcome_value, self.paused = outcome, paused
         self.config = SimpleNamespace(observer_only=False)
         self.health = SimpleNamespace(process_alive=True, window_valid=True)
+        self.loss_screen_ready = loss_screen_ready
         self.session = SimpleNamespace(input_backend=RestartInput(self, fail=fail, opens_menu=opens_menu))
 
     def observe(self):
@@ -284,7 +297,10 @@ class UiDriverRuntime:
         )
 
     def outcome(self):
-        return OutcomeEvidence(self.outcome_value, "test", board_address=0x2000)
+        return OutcomeEvidence(
+            self.outcome_value, "test", board_address=0x2000,
+            loss_screen_ready=self.loss_screen_ready,
+        )
 
 
 class NormalUiRestartDriverTests(unittest.TestCase):
@@ -338,6 +354,17 @@ class NormalUiRestartDriverTests(unittest.TestCase):
         self.assertFalse(result.requested)
         self.assertIn("loss_retry_input_failed", result.reason)
         self.assertEqual(runtime.session.input_backend.events, [("click", 384, 369, 0.10)])
+
+    def test_loss_screen_timeout_sends_no_click(self):
+        runtime = UiDriverRuntime(GameOutcome.LOST, loss_screen_ready=False)
+        driver = NormalUiRestartDriver(
+            loss_screen_ready_timeout_seconds=0.0,
+            sleeper=lambda _: None,
+        )
+        result = driver.request_restart(runtime)
+        self.assertFalse(result.requested)
+        self.assertEqual(result.reason, "loss_screen_not_ready")
+        self.assertEqual(runtime.session.input_backend.events, [])
 
     def test_bad_geometry_and_input_failure_refuse_without_restart(self):
         runtime = UiDriverRuntime(fail="click")

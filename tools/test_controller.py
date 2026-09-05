@@ -75,9 +75,16 @@ def plant_state(
     plants=None,
     grid_items=None,
 ):
+    packets = list(seeds)
+    if len(packets) == 1:
+        packets.extend(
+            seed(slot=slot, actionable=False)
+            for slot in range(6)
+            if slot != packets[0].slot
+        )
     return SimpleNamespace(
         paused=paused,
-        seeds=list(seeds),
+        seeds=packets,
         scene=scene,
         plants=plants or [],
         grid_items=grid_items or [],
@@ -87,6 +94,7 @@ def plant_state(
 def shovel_state(*plants, paused=False, seed_count=6):
     return SimpleNamespace(
         paused=paused,
+        scene=0,
         plants=list(plants),
         seeds=[SimpleNamespace(slot=index) for index in range(seed_count)],
     )
@@ -194,14 +202,14 @@ class ControllerPlantTests(unittest.TestCase):
         self.assertEqual(result.reason, "clicks_issued")
         self.assertTrue(result.attempted)
         self.assertIsNone(result.success)
-        self.assertEqual(backend.clicks, [(155, 43), (320, 295)])
+        self.assertEqual(backend.clicks, [(179, 43), (320, 330)])
         self.assertEqual(backend.move_settle_delays, [0.0, TARGET_TILE_MOVE_SETTLE_DELAY])
         self.assertEqual(
             backend.events,
             [
-                ("click", 155, 43),
+                ("click", 179, 43),
                 ("sleep", SEED_SELECTION_SETTLE_DELAY),
-                ("click", 320, 295),
+                ("click", 320, 330),
             ],
         )
 
@@ -275,7 +283,7 @@ class ControllerPlantTests(unittest.TestCase):
         self.assertEqual(result.reason, "input_failed:simulated input failure")
         self.assertTrue(result.attempted)
         self.assertFalse(result.success)
-        self.assertEqual(backend.clicks, [(155, 43)])
+        self.assertEqual(backend.clicks, [(179, 43)])
 
     def test_plant_verification_detects_expected_plant(self):
         expected_seed = seed()
@@ -302,7 +310,7 @@ class ControllerShovelTests(unittest.TestCase):
         self.assertEqual(result.reason, "clicks_issued")
         self.assertTrue(result.attempted)
         self.assertIsNone(result.success)
-        self.assertEqual(backend.clicks, [(491, 36), (320, 295)])
+        self.assertEqual(backend.clicks, [(491, 36), (320, 330)])
         self.assertEqual(
             backend.move_settle_delays,
             [0.0, TARGET_TILE_MOVE_SETTLE_DELAY],
@@ -312,7 +320,7 @@ class ControllerShovelTests(unittest.TestCase):
             [
                 ("click", 491, 36),
                 ("sleep", SHOVEL_SELECTION_SETTLE_DELAY),
-                ("click", 320, 295),
+                ("click", 320, 330),
             ],
         )
 

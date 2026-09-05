@@ -358,13 +358,17 @@ Be explicit about what was **not** tested or not completed.
   it must not absorb runtime safety, UI monitor, or training configuration into
   frozen reader/controller/environment/runtime layers.
 
-**v0.2.0 training lifecycle support is live validated and preserves v1
+**v0.2.1 training lifecycle support is live validated and preserves v1
 contracts.** `Board::mLevelAwardSpawned` at Board `+0x5624` is authoritative
 for a live reward-pending win on the supported client; `board_result` alone is
 unsafe while a Board exists. Reset postconditions (new Board, same level,
 fresh unpaused state, and clean entities) are authoritative. Unknown paused
 modals fail closed. The version-pinned UI driver applies only to the 800x600
 GOTY client and uses a 100 ms cursor-settle delay for Menu `(739, 13)`, Restart
-Level `(400, 358)`, and Try Again `(384, 369)`. The validated research
+Level `(400, 358)`, and Try Again `(384, 369)`. v0.2.1 additionally validates
+the six-packet Adventure 1-7 seed rule `(120 + 59 * slot, 43)`, normal-lawn
+input `(80 + 80 * col, 130 + 100 * row)`, all-six packet selection, all-five
+row placement, and three immediate autonomous loss resets after native
+cutscene readiness. The validated research
 condition is Adventure 1-7; do not substitute forced earlier levels, which
 were unstable on the target installation.
