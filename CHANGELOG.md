@@ -6,6 +6,23 @@ schema versions.
 
 ## [Unreleased]
 
+## [0.2.1]
+
+- Corrected Controller v1's in-level seed-bank targeting with the supported
+  packet-count-aware layout. Adventure 1-7's six packets use
+  `(120 + 59 * slot, 43)`; all six selections were live verified without
+  planting.
+- Corrected scene-aware lawn input geometry. Normal five-lane boards use
+  `(80 + 80 * col, 130 + 100 * row)`; exact memory-confirmed Adventure 1-7
+  placements passed on all five rows. Pool/fog and roof mappings retain their
+  separately derived offline regressions.
+- Added native loss-dialog readiness evidence from `CutScene.mCutsceneTime`.
+  Loss restart waits for `>= 11000`, then sends one settled Try Again click;
+  three immediate autonomous loss resets passed.
+- Added read-only geometry calibration plus bounded targeted seed-selection
+  and placement live-validation tools. Frozen v1 public contracts are
+  unchanged.
+
 ## [0.2.0]
 
 - Added live-validated natural RUNNING/WON/LOST lifecycle evidence without
@@ -39,4 +56,5 @@ schema versions.
   validation against the supported PvZ GOTY client.
 
 [0.2.0]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.2.0
+[0.2.1]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.2.1
 [0.1.0]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.1.0

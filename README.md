@@ -4,7 +4,8 @@ A reverse-engineering and reinforcement-learning harness built around the origin
 
 > **Current milestone: Phase 3.5 complete — the Phase 1–3.5 PvZ AI Harness is frozen at v0.1.0. Phase 4 learning research now continues in the separate [`PvZ-DeepLearning`](https://github.com/b3d012/PvZ-DeepLearning) repository.**
 
-> **Development status:** v0.2.0 adds live-validated Phase 4 training
+> **Development status:** v0.2.1 adds live-validated controller geometry and
+> autonomous-loss restart reliability to the Phase 4 training
 > lifecycle support while preserving every v1 contract. The validated research
 > condition is Adventure 1-7 on PvZ GOTY 1.2.0.1073.
 
@@ -165,7 +166,14 @@ input only after geometry, state, and outcome checks. It uses Menu `(739, 13)`,
 Restart Level `(400, 358)`, and loss Try Again `(384, 369)` with a 100 ms
 cursor-settle delay. Unknown paused modals fail closed. The outer verifier,
 not UI timing, proves a replaced Board, the same level, fresh clock, unpaused
-state, and clean entities.
+state, and clean entities. v0.2.1 corrects physical Controller targeting
+without changing Controller v1: six-slot Adventure 1-7 seed packets use
+`(120 + 59 * slot, 43)`, and normal five-lane input uses
+`(80 + 80 * col, 130 + 100 * row)`. The original column X rule was retained
+after calibration; `120` is a cell-boundary interpretation, not the validated
+input point. Pool/fog and roof retain scene-specific mappings. For a loss, the
+driver now waits read-only for native `CutScene.mCutsceneTime >= 11000` before
+its single settled Try Again click; it never retries blindly.
 
 Live Board reward-pending victory is detected by `mLevelAwardSpawned` at Board
 `+0x5624`; `board_result` alone is never trusted while a Board exists. The

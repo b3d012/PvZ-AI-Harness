@@ -103,6 +103,30 @@ is therefore complete and frozen as the stable pre-Phase-4 boundary.
 
 ## Unreleased Phase 4 training-support validation
 
+## v0.2.1 controller geometry and autonomous-loss validation â€” 5 September 2026
+
+Supported target: PvZ GOTY 1.2.0.1073, 800 by 600 client, Adventure 1-7,
+scene 0. Operator cursor calibration, with the client kept stationary, and
+production-controller checks established the following input points:
+
+| Surface | Validated rule | Evidence |
+| --- | --- | --- |
+| Six seed packets | `(120 + 59 * slot, 43)` | measured centres: 120/181/238/298/356/415; selection 6/6, no plants |
+| Normal lawn columns | `80 + 80 * col` | left/middle/right all remained inside their intended cells |
+| Normal lawn rows | `130 + 100 * row` | memory-confirmed placement rows 0--4, 5/5 |
+
+The previous attempt to use `x=120 + 80*col` confused the lawn cell boundary
+with a robust validated input point and was rejected by calibration. Pool/fog
+and roof mappings remain reference-derived and offline-regression-tested.
+
+For loss reset, `GameOutcome.LOST` can precede native Game Over usability.
+`CutScene.mCutsceneTime >= 11000` is the authoritative readiness signal: the
+game creates `GameOverDialog` at that value. The driver polls it read-only,
+then sends exactly one `(384, 369)` Try Again click with the existing 100 ms
+move settle. Three immediate autonomous loss trials each produced a fresh
+Board, level 7, near-zero clock, and `reset_ok`; no retries or manual waiting
+were used.
+
 ## Final v0.2.0 lifecycle validation â€” 5 September 2026
 
 Supported client: PvZ GOTY 1.2.0.1073. The controlled research condition is

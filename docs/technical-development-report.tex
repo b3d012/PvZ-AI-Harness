@@ -88,6 +88,15 @@ Checks cover bounds, seed existence/actionability, cooldown, affordability, scen
 Controller v1 completes the action half of the loop. Higher layers request semantic actions; the controller translates those requests into safe physical input.
 \subsection{Logical coordinate system}
 PvZ uses an 800 by 600 logical client. \texttt{pvz\_controller/coordinates.py} defines lawn tile, seed packet, shovel, and pickup click points in logical coordinates and scales them to the actual client size. Standard board geometry uses nine columns and up to six rows. Shovel placement accounts for the seed bank widening as more packet slots are unlocked.
+The compatible v0.2.1 patch corrected two physical-input assumptions without
+changing Controller v1 semantics. On the supported Adventure 1-7 client, the
+six-packet seed bank was calibrated as $(120 + 59s, 43)$ for slot $s$; the
+count-dependent spacing rule remains derived from reference source. Normal
+five-lane lawn input was calibrated as $(80 + 80c, 130 + 100r)$ for column
+$c$ and row $r$. In particular, $x=120$ is a lawn-cell boundary interpretation
+rather than the validated robust first-column input point. All six packet
+selections and exact memory-confirmed placements across all five normal lanes
+were validated live; pool/fog and roof mappings remain separately tested.
 \subsection{Safe Windows input backend}
 \texttt{pvz\_controller/windows\_input.py} enumerates visible windows belonging to \texttt{PlantsVsZombies.exe}, prefers the expected title, rejects minimized/zero-sized clients, obtains client bounds, converts logical client positions into screen positions, focuses the game, moves the cursor, and emits one ordinary left click through \texttt{SendInput}. An injectable Win32 API seam allows this logic to be tested without clicking the real desktop.
 \subsection{Semantic actions}
