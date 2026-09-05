@@ -166,5 +166,18 @@ Automatic active reset passed three consecutive times with distinct Board
 addresses and `RESET_OK` at level 7. An explicitly attested, already-visible
 normal Menu also reset successfully. `GameState.paused` alone remains
 insufficient evidence of that menu, so the default driver refuses externally
-paused states without input. Native loss retry and same-level win reset remain
-unvalidated; win reset is still refused.
+ paused states without input. Native loss retry and same-level win reset remain
+ unvalidated; win reset is still refused.
+
+Loss reset calibration subsequently confirmed `GameOutcome.LOST` as
+`game_scene=4` and `board_result=2`. Enter did not activate the native Game
+Over screen's visible Try Again control. Its measured logical/client center is
+`(384, 369)` on the 800 by 600, 96-DPI client; one settled (100 ms) click at
+that coordinate restarted the game. The loss driver therefore uses that one
+settled click and leaves same-level/fresh-board proof to the reset verifier.
+
+The full loss-reset verifier subsequently passed twice (`425085536` to
+`424159288`, then `424159288` to `420324176`, both level 7 at clock zero). A
+third loss retry did create a different level-7 Board at clock zero but was
+correctly rejected as `stale_entities`; automatic loss reset is therefore not
+claimed as 3/3 validated.

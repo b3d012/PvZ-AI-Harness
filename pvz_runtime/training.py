@@ -96,6 +96,7 @@ class NormalUiRestartDriver:
 
     MENU_BUTTON = (739, 13)
     RESTART_LEVEL_BUTTON = (400, 358)
+    TRY_AGAIN_BUTTON = (384, 369)
     CLIENT_SIZE = (800, 600)
     # GOTY 1.2.0.1073 accepted Menu only after cursor relocation had settled
     # for 100 ms. This is deliberately UI-driver-local: board controller
@@ -182,8 +183,13 @@ class NormalUiRestartDriver:
     def _restart_lost(self, runtime: Any) -> ResetControlResult:
         if not self._validate_client(runtime):
             return ResetControlResult(False, "unsupported_client_geometry")
+        if runtime.outcome().outcome is not GameOutcome.LOST:
+            return ResetControlResult(False, "loss_outcome_not_verified")
         try:
-            runtime.session.input_backend.press_enter()
+            runtime.session.input_backend.left_click(
+                *self.TRY_AGAIN_BUTTON,
+                move_settle_delay=self.UI_CONTROL_MOVE_SETTLE_DELAY,
+            )
         except ControllerInputError as error:
             return ResetControlResult(False, f"loss_retry_input_failed:{type(error).__name__}:{error}")
         return ResetControlResult(True, "loss_try_again_requested")

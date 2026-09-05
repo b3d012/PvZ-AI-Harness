@@ -294,15 +294,22 @@ class NormalUiRestartDriverTests(unittest.TestCase):
             ("click", 400, 358, 0.10), ("enter",),
         ])
 
-    def test_loss_uses_only_native_try_again_and_win_is_refused(self):
+    def test_loss_uses_settled_try_again_click_and_win_is_refused(self):
         lost = UiDriverRuntime(GameOutcome.LOST)
         self.assertTrue(self.driver().request_restart(lost).requested)
-        self.assertEqual(lost.session.input_backend.events, [("enter",)])
+        self.assertEqual(lost.session.input_backend.events, [("click", 384, 369, 0.10)])
         won = UiDriverRuntime(GameOutcome.WON)
         result = self.driver().request_restart(won)
         self.assertFalse(result.requested)
         self.assertIn("same_level_reentry", result.reason)
         self.assertEqual(won.session.input_backend.events, [])
+
+    def test_loss_click_failure_refuses_without_enter(self):
+        runtime = UiDriverRuntime(GameOutcome.LOST, fail="click")
+        result = self.driver().request_restart(runtime)
+        self.assertFalse(result.requested)
+        self.assertIn("loss_retry_input_failed", result.reason)
+        self.assertEqual(runtime.session.input_backend.events, [("click", 384, 369, 0.10)])
 
     def test_bad_geometry_and_input_failure_refuse_without_restart(self):
         runtime = UiDriverRuntime(fail="click")
