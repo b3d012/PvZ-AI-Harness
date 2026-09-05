@@ -146,7 +146,7 @@ def main():
         )
         return
 
-    target_logical = tile_to_client(row, col)
+    target_logical = tile_to_client(row, col, scene=fresh_state.scene)
     try:
         target_screen = backend.logical_to_screen(
             *target_logical,
