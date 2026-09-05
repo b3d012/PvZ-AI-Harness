@@ -26,6 +26,13 @@ OFFSETS = {
         # Board::mLevelComplete. Kept outside GameState v1: it is lifecycle
         # evidence, not a strategic observation feature.
         "level_complete": 0x5614,
+        # Board::mLevelAwardSpawned.  This is the authoritative in-Board
+        # reward-pending signal for an Adventure victory: it becomes true when
+        # the visible level award/card is spawned, before Board teardown.
+        "level_award_spawned": 0x5624,
+        # Adjacent Board lifecycle fields retained for read-only diagnostics.
+        "board_fade_out_counter": 0x5618,
+        "next_survival_stage_counter": 0x561C,
 
         # -------------------------------------------------
         # Plants

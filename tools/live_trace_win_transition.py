@@ -22,10 +22,19 @@ def evidence(runtime: PvZRuntime) -> dict:
         "board_result": outcome.board_result,
         "game_scene": outcome.game_scene,
         "level_complete": outcome.level_complete,
+        "level_award_spawned": outcome.level_award_spawned,
+        "board_fade_out_counter": outcome.board_fade_out_counter,
+        "next_survival_stage_counter": outcome.next_survival_stage_counter,
         "state_available": state is not None,
         "paused": None if state is None else bool(state.paused),
         "level": None if state is None else int(state.adventure_level),
         "game_clock": None if state is None else int(state.game_clock),
+        "wave": None if state is None else {
+            "total": int(state.wave.total_waves),
+            "spawned": int(state.wave.spawned_waves),
+            "refreshed": int(state.wave.refreshed_waves),
+        },
+        "zombie_count": None if state is None else len(state.zombies),
     }
 
 
@@ -42,10 +51,10 @@ def main() -> None:
     runtime.attach()
     try:
         initial = evidence(runtime)
-        if (initial["outcome"] != GameOutcome.RUNNING.value
+        if (initial["outcome"] not in (GameOutcome.RUNNING.value, GameOutcome.WON.value)
                 or initial["level"] != args.level):
             print(json.dumps({"status": "refused", "initial": initial}, indent=2, sort_keys=True))
-            raise SystemExit("FAIL: expected running configured Adventure level")
+            raise SystemExit("FAIL: expected running or reward-pending configured Adventure level")
 
         started = time.monotonic()
         first_won_at = None

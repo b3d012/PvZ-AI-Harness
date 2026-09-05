@@ -48,6 +48,9 @@ class OutcomeEvidence:
     game_scene: int | None = None
     board_result: int | None = None
     level_complete: bool | None = None
+    level_award_spawned: bool | None = None
+    board_fade_out_counter: int | None = None
+    next_survival_stage_counter: int | None = None
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -76,24 +79,39 @@ def read_outcome(memory: Any) -> OutcomeEvidence:
 
         if board != 0:
             complete = bool(memory.read_bool(board + offsets["level_complete"]))
+            award_spawned = bool(memory.read_bool(board + offsets["level_award_spawned"]))
+            fade_out_counter = int(memory.read_int(board + offsets["board_fade_out_counter"]))
+            next_survival_stage_counter = int(
+                memory.read_int(board + offsets["next_survival_stage_counter"])
+            )
             if complete:
                 return OutcomeEvidence(
                     GameOutcome.WON, "board_level_complete", lawn, board,
-                    scene, result, complete,
+                    scene, result, complete, award_spawned, fade_out_counter,
+                    next_survival_stage_counter,
+                )
+            if award_spawned:
+                return OutcomeEvidence(
+                    GameOutcome.WON, "board_level_award_spawned", lawn, board,
+                    scene, result, complete, award_spawned, fade_out_counter,
+                    next_survival_stage_counter,
                 )
             if scene == GameScene.ZOMBIES_WON:
                 return OutcomeEvidence(
                     GameOutcome.LOST, "game_scene_zombies_won", lawn, board,
-                    scene, result, complete,
+                    scene, result, complete, award_spawned, fade_out_counter,
+                    next_survival_stage_counter,
                 )
             if scene in (GameScene.PLAYING, GameScene.CHALLENGE):
                 return OutcomeEvidence(
                     GameOutcome.RUNNING, "live_board_playing", lawn, board,
-                    scene, result, complete,
+                    scene, result, complete, award_spawned, fade_out_counter,
+                    next_survival_stage_counter,
                 )
             return OutcomeEvidence(
                 GameOutcome.UNKNOWN, "live_board_transition", lawn, board,
-                scene, result, complete,
+                scene, result, complete, award_spawned, fade_out_counter,
+                next_survival_stage_counter,
             )
 
         if result == BoardResult.WON:

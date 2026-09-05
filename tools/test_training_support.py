@@ -18,9 +18,14 @@ from pvz_runtime import (
 
 
 class AddressMemory:
-    def __init__(self, *, lawn=0x1000, board=0x2000, scene=3, result=0, complete=False, error=None):
+    def __init__(self, *, lawn=0x1000, board=0x2000, scene=3, result=0, complete=False,
+                 award_spawned=False, fade_out_counter=-1, next_survival_stage_counter=0,
+                 error=None):
         self.lawn, self.board, self.scene = lawn, board, scene
         self.result, self.complete, self.error = result, complete, error
+        self.award_spawned = award_spawned
+        self.fade_out_counter = fade_out_counter
+        self.next_survival_stage_counter = next_survival_stage_counter
         self.o = OFFSETS[PVZ_VERSION]
 
     def _maybe_fail(self):
@@ -41,12 +46,18 @@ class AddressMemory:
             return self.scene
         if address == self.lawn + self.o["board_result"]:
             return self.result
+        if address == self.board + self.o["board_fade_out_counter"]:
+            return self.fade_out_counter
+        if address == self.board + self.o["next_survival_stage_counter"]:
+            return self.next_survival_stage_counter
         raise AssertionError(hex(address))
 
     def read_bool(self, address):
         self._maybe_fail()
         if address == self.board + self.o["level_complete"]:
             return self.complete
+        if address == self.board + self.o["level_award_spawned"]:
+            return self.award_spawned
         raise AssertionError(hex(address))
 
 
@@ -59,6 +70,15 @@ class OutcomeTests(unittest.TestCase):
     def test_won_from_live_board_completion(self):
         evidence = read_outcome(AddressMemory(complete=True))
         self.assertEqual(evidence.outcome, GameOutcome.WON)
+
+    def test_reward_pending_live_board_is_won(self):
+        evidence = read_outcome(AddressMemory(result=BoardResult.WON, award_spawned=True))
+        self.assertEqual(evidence.outcome, GameOutcome.WON)
+        self.assertEqual(evidence.reason, "board_level_award_spawned")
+
+    def test_retained_win_result_on_fresh_running_board_is_not_won(self):
+        evidence = read_outcome(AddressMemory(result=BoardResult.WON, award_spawned=False))
+        self.assertEqual(evidence.outcome, GameOutcome.RUNNING)
 
     def test_lost_from_zombies_won_scene(self):
         evidence = read_outcome(AddressMemory(scene=GameScene.ZOMBIES_WON))
@@ -294,15 +314,23 @@ class NormalUiRestartDriverTests(unittest.TestCase):
             ("click", 400, 358, 0.10), ("enter",),
         ])
 
-    def test_loss_uses_settled_try_again_click_and_win_is_refused(self):
+    def test_loss_uses_settled_try_again_click_and_live_win_uses_menu_restart(self):
         lost = UiDriverRuntime(GameOutcome.LOST)
         self.assertTrue(self.driver().request_restart(lost).requested)
         self.assertEqual(lost.session.input_backend.events, [("click", 384, 369, 0.10)])
         won = UiDriverRuntime(GameOutcome.WON)
-        result = self.driver().request_restart(won)
+        self.assertTrue(self.driver().request_restart(won).requested)
+        self.assertEqual(won.session.input_backend.events, [
+            ("click", 739, 13, 0.10), ("click", 400, 358, 0.10), ("enter",),
+        ])
+
+    def test_torn_down_win_refuses_without_input(self):
+        runtime = UiDriverRuntime(GameOutcome.WON)
+        runtime.outcome = lambda: OutcomeEvidence(GameOutcome.WON, "test", board_address=None)
+        result = self.driver().request_restart(runtime)
         self.assertFalse(result.requested)
-        self.assertIn("same_level_reentry", result.reason)
-        self.assertEqual(won.session.input_backend.events, [])
+        self.assertEqual(result.reason, "won_board_unavailable")
+        self.assertEqual(runtime.session.input_backend.events, [])
 
     def test_loss_click_failure_refuses_without_enter(self):
         runtime = UiDriverRuntime(GameOutcome.LOST, fail="click")

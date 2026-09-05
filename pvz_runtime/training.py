@@ -90,8 +90,9 @@ class NormalUiRestartDriver:
 
     This is deliberately not a menu navigator. It restarts an attached 800x600
     board only through the in-game Menu -> Restart Level -> confirmation
-    sequence, or accepts native Try Again after a loss. The Adventure award
-    screen has no same-level replay control, so a win is refused without input.
+    sequence, or accepts native Try Again after a loss. A live, authoritative
+    reward-pending win uses the same normal Menu path; a torn-down Award Board
+    is refused without input.
     """
 
     MENU_BUTTON = (739, 13)
@@ -123,7 +124,15 @@ class NormalUiRestartDriver:
         if not runtime.health.process_alive or not runtime.health.window_valid:
             return ResetControlResult(False, "runtime_not_input_ready")
         if before.outcome is GameOutcome.WON:
-            return ResetControlResult(False, "won_requires_supported_same_level_reentry")
+            if before.board_address is None:
+                return ResetControlResult(False, "won_board_unavailable")
+            if not self._validate_client(runtime):
+                return ResetControlResult(False, "unsupported_client_geometry")
+            if bool(before_state.paused):
+                if not self.known_pause_menu:
+                    return ResetControlResult(False, "paused_menu_not_verified")
+                return self._restart_open_menu(runtime, before)
+            return self._restart_playing(runtime, before)
         if before.outcome is GameOutcome.LOST:
             return self._restart_lost(runtime)
         if before.outcome is not GameOutcome.RUNNING:
@@ -211,7 +220,7 @@ class NormalUiRestartDriver:
         after = runtime.outcome()
         return (
             state is not None
-            and after.outcome is GameOutcome.RUNNING
+            and after.outcome is before.outcome
             and after.board_address == before.board_address
             and bool(state.paused) is paused
         )

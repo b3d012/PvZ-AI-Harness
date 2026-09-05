@@ -180,3 +180,26 @@ Four clean loss-reset trials subsequently passed with a distinct Board, level
 7, clock zero, and `RESET_OK`. One separate trial in which game state had been
 manually contaminated was correctly rejected as `stale_entities`; it is not a
 clean lifecycle result and does not weaken the verifier.
+
+### Victory reward-pending investigation â€” 5 September 2026
+
+Natural Adventure 1-7 completion exposed a distinct live-Board victory state:
+the award plant/card was visibly present, the Board remained allocated, and
+the normal Menu was independently confirmed usable. During a 30-second
+read-only trace, `level_complete` remained false, so that field is not a
+reliable detector for this state. The version-pinned Board layout instead
+exposes `mLevelAwardSpawned` at `0x5624`; a read-only calibration of the same
+visible reward-pending state found it true, with `mBoardFadeOutCounter=-1` and
+`mNextSurvivalStageCounter=0`. The lifecycle outcome rule therefore treats a
+live Board with `mLevelAwardSpawned=true` as WON, while continuing to reject a
+retained `mBoardResult=WON` alone on a live Board. Once the Board is gone, the
+existing application-result fallback remains in effect.
+
+`tools/live_trace_win_transition.py` now records this award signal, related
+diagnostic counters, wave state, and zombie count. Automatic same-level win
+reset trial 1/3 passed from the visible reward-pending state: Board
+`427423864` became `222232168`, the observed level remained 7, the clock was
+0, and the verifier returned `reset_ok`. The resulting fresh Board read
+`mLevelAwardSpawned=false`, `mBoardResult=0`, wave 0/20, and no zombies. The
+remaining two clean natural win trials must use only Menu, Restart Level, and
+native confirmation, never the reward card, and must never advance to level 8.
