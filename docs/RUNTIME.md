@@ -135,6 +135,29 @@ environment.reset(EpisodeConfig("manual-level", active_rows=(True,) * 5 + (False
 The adapters intentionally add no alternate reward, observation, action, or
 episode semantics. Future Phase 4 code can continue consuming Environment v1.
 
+## Phase 4 training lifecycle support
+
+`GameOutcome` is kept separate from GameState v1. `OutcomeEvidence` reads the
+supported layout's application scene, application Board result, level-complete
+flag, and `Board::mLevelAwardSpawned` at `+0x5624`. A live reward-pending Board
+with that field true is WON; a zombies-won scene is LOST; the application
+result preserves a terminal outcome after Board teardown. A retained Board
+result alone never makes a live Board terminal. These mappings were live
+validated on the GOTY 1.2.0.1073 Adventure 1-7 condition.
+
+`TrainingEpisodeSupport` composes outcome, reset verification, and managed
+pickups without ML dependencies. Its default restart driver fails closed; the
+version-pinned `NormalUiRestartDriver` is an explicit opt-in. `RESET_OK`
+additionally requires a
+different Board address, expected Adventure level and optional seed types, an
+unpaused near-initial clock, observable health, and normally empty plant and
+zombie sets.
+
+`ManagedPickupCollector.collect_once()` is synchronous and calls only
+`PvZRuntime.execute(COLLECT_PICKUP)` under `run_serialized()`. Pending pickup
+identities suppress duplicates; disappearance confirms collection. Metrics are
+diagnostics, not reward terms. No background clicking thread exists.
+
 ## Concurrency
 
 The runtime does not start autonomous pollers. Its one reentrant lock prevents

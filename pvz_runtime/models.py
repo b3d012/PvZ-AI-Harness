@@ -9,6 +9,7 @@ from typing import Any
 from pvz_controller import ActionResult
 from pvz_runtime.phase import GamePhase
 from pvz_runtime.session import SessionStatus
+from pvz_reader.outcome import OutcomeEvidence
 
 
 class FocusMode(str, Enum):
@@ -210,6 +211,7 @@ class RuntimeSnapshot:
     last_focus_result: str | None = None
     last_pause_result: str | None = None
     last_input_result: str | None = None
+    outcome: OutcomeEvidence | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -223,4 +225,5 @@ class RuntimeSnapshot:
             "last_focus_result": self.last_focus_result,
             "last_pause_result": self.last_pause_result,
             "last_input_result": self.last_input_result,
+            "outcome": None if self.outcome is None else self.outcome.to_dict(),
         }

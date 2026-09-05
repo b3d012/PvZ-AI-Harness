@@ -21,6 +21,7 @@ MAPVK_VK_TO_VSC = 0
 PM_NOREMOVE = 0
 SW_RESTORE = 9
 VK_ESCAPE = 0x1B
+VK_RETURN = 0x0D
 INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 FOCUS_TIMEOUT_SECONDS = 0.25
@@ -50,6 +51,37 @@ class ClientArea:
     screen_y: int
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class WindowRect:
+    """Physical screen bounds including the non-client frame/title bar."""
+
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    @property
+    def width(self) -> int:
+        return self.right - self.left
+
+    @property
+    def height(self) -> int:
+        return self.bottom - self.top
+
+
+@dataclass(frozen=True)
+class WindowCoordinateReport:
+    """Read-only evidence separating window, client, and PvZ logical spaces."""
+
+    hwnd: int
+    process_id: int
+    window_rect: WindowRect
+    client_area: ClientArea
+    dpi: int | None
+    logical_size: tuple[int, int]
+    scale: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -207,6 +239,26 @@ class _Win32Api:
             width=rect.right - rect.left,
             height=rect.bottom - rect.top,
         )
+
+    def window_rect(self, hwnd: int) -> WindowRect:
+        rect = _Rect()
+        if not self.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            raise GameWindowUnavailable("failed to read PvZ window bounds")
+        return WindowRect(int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
+
+    def dpi_for_window(self, hwnd: int) -> int | None:
+        """Return per-window DPI when the platform exports GetDpiForWindow."""
+        getter = getattr(self.user32, "GetDpiForWindow", None)
+        if getter is None:
+            return None
+        dpi = int(getter(hwnd))
+        return dpi if dpi > 0 else None
+
+    def cursor_position(self) -> tuple[int, int]:
+        point = _Point()
+        if not self.user32.GetCursorPos(ctypes.byref(point)):
+            raise InputFailed("failed to read cursor position")
+        return int(point.x), int(point.y)
 
     def focus(
         self,
@@ -380,6 +432,28 @@ class WindowsInputBackend:
             height=area.height,
         )
 
+    def coordinate_report(self) -> WindowCoordinateReport:
+        """Read-only report; never derives client origin from WindowRect."""
+        area = self.get_client_area()
+        return WindowCoordinateReport(
+            hwnd=area.hwnd,
+            process_id=self._api.window_process_id(area.hwnd),
+            window_rect=self._api.window_rect(area.hwnd),
+            client_area=area,
+            dpi=self._api.dpi_for_window(area.hwnd),
+            logical_size=(800, 600),
+            scale=(area.width / 800.0, area.height / 600.0),
+        )
+
+    def cursor_screen_position(self) -> tuple[int, int]:
+        """Read the physical cursor location without moving or clicking it."""
+        return self._api.cursor_position()
+
+    def screen_to_client(self, screen_x: int, screen_y: int, area: ClientArea | None = None) -> tuple[int, int]:
+        """Convert a physical screen point using ClientToScreen's origin only."""
+        resolved = area or self.get_client_area()
+        return int(screen_x) - resolved.screen_x, int(screen_y) - resolved.screen_y
+
     def focus_game(self) -> bool:
         """Explicitly focus the validated PvZ window and verify foreground."""
         area = self.get_client_area()
@@ -440,6 +514,14 @@ class WindowsInputBackend:
 
     def press_escape(self) -> None:
         """Send one verified Escape key press to the bound PvZ window."""
+        self._press_key(VK_ESCAPE, "Escape")
+
+    def press_enter(self) -> None:
+        """Send one verified Enter key press to the bound PvZ window."""
+        self._press_key(VK_RETURN, "Enter")
+
+    def _press_key(self, virtual_key: int, key_name: str) -> None:
+        """Send one verified scan-code key press to the bound PvZ window."""
         area = self.get_client_area()
         if self._api.foreground_window() != area.hwnd:
             if not self.auto_focus:
@@ -448,5 +530,5 @@ class WindowsInputBackend:
                 raise InputFailed("could not focus the Plants vs. Zombies window")
         if self._api.foreground_window() != area.hwnd:
             raise InputFailed("Plants vs. Zombies focus verification failed")
-        if not self._api.send_scan_code_key_press(VK_ESCAPE):
-            raise InputFailed("Windows rejected the Escape key press")
+        if not self._api.send_scan_code_key_press(virtual_key):
+            raise InputFailed(f"Windows rejected the {key_name} key press")

@@ -1,6 +1,8 @@
 # PvZ AI Harness integration guide
 
-`pvz-ai-harness` is the frozen, Windows-focused bridge between a locally installed PvZ GOTY client and strategic-learning code. It is not a game distribution, game launcher, or training framework.
+`pvz-ai-harness` v0.2.0 is the frozen, Windows-focused bridge between a locally
+installed PvZ GOTY client and future strategic-learning code. It is not a
+game distribution, game launcher, or training framework.
 
 ## Install
 

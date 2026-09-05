@@ -9,6 +9,11 @@ OFFSETS = {
 
         # LawnApp
         "board": 0x868,
+        # LawnApp::mGameScene and LawnApp::mBoardResult. These GOTY offsets are
+        # derived from the supported 1.2.0.1073 layout and require the v0.2.0
+        # live-validation protocol before release.
+        "game_scene": 0x91C,
+        "board_result": 0x9A8,
 
         # -------------------------------------------------
         # Board
@@ -18,6 +23,16 @@ OFFSETS = {
         "scene": 0x5564,
         "adventure_level": 0x5568,
         "game_paused": 0x17C,
+        # Board::mLevelComplete. Kept outside GameState v1: it is lifecycle
+        # evidence, not a strategic observation feature.
+        "level_complete": 0x5614,
+        # Board::mLevelAwardSpawned.  This is the authoritative in-Board
+        # reward-pending signal for an Adventure victory: it becomes true when
+        # the visible level award/card is spawned, before Board teardown.
+        "level_award_spawned": 0x5624,
+        # Adjacent Board lifecycle fields retained for read-only diagnostics.
+        "board_fade_out_counter": 0x5618,
+        "next_survival_stage_counter": 0x561C,
 
         # -------------------------------------------------
         # Plants

@@ -100,3 +100,135 @@ virtual-key Escape path. The bounded command FIFO, coalesced refreshes, visible
 results, verified focus sequence, and one scan-code Escape pair corrected those
 issues before this final validation. Phase 3.5 runtime/harness infrastructure
 is therefore complete and frozen as the stable pre-Phase-4 boundary.
+
+## Unreleased Phase 4 training-support validation
+
+## Final v0.2.0 lifecycle validation â€” 5 September 2026
+
+Supported client: PvZ GOTY 1.2.0.1073. The controlled research condition is
+Adventure 1-7, prepared normally because forced earlier Adventure levels were
+unstable on this installation.
+
+| Capability | Result |
+| --- | --- |
+| RUNNING outcome | validated |
+| LOST outcome | validated (`game_scene=ZOMBIES_WON`, result LOST) |
+| WON after Board teardown | validated (application result WON) |
+| WON with live reward-pending Board | validated (`mLevelAwardSpawned`, Board `+0x5624`) |
+| Active restart | validated |
+| Known normal pause-menu restart | validated |
+| Native Try Again loss restart | 4/4 clean resets |
+| Reward-pending win restart | 3/3 clean resets |
+| Managed sun pickups | 11/11 successes, 0 failures |
+
+The reward-pending win field was true at level 7, wave 20/20, with zero
+zombies while `level_complete` remained false. A live Board does not trust
+`board_result` alone, including a retained value from an earlier episode.
+
+All validated UI controls use the 800 by 600 logical client and a 100 ms
+move-settle delay: Menu `(739, 13)`, Restart Level `(400, 358)`, and Try Again
+`(384, 369)`. No reward card was clicked in win-reset validation and Adventure
+1-8 was never entered. `RESET_OK` requires a new Board pointer, level 7, a
+near-zero unpaused clock, and clean entities; a manually contaminated Board
+was correctly rejected as `stale_entities` and is not a clean-trial failure.
+
+These checks are pending and must all pass before merge or release. Prepare the
+exact experiment level in active gameplay, then run:
+
+```powershell
+conda activate pvz-rl
+python tools/live_test_terminal_outcome.py
+```
+
+It must display `running`; after a deliberate natural win it must display
+`won` with raw evidence. Re-enter the same level and confirm `running`; then
+deliberately lose and leave the Zombies Won screen visible until it displays
+`lost`. Do not dismiss either result screen early.
+
+Validate reset postconditions at least three times, substituting the prepared
+level's observed numeric seed type IDs:
+
+```powershell
+python tools/live_test_same_level_reset.py --level 5 --seed-types 0 1
+```
+
+Use PvZ's normal Restart Level control only when prompted. Each pass must show
+`reset_ok`, a changed nonzero Board address, level 5, and a near-initial game
+clock. This validates operator-assisted reset; unattended reset still requires
+a separately implemented and live-validated driver.
+
+Leave falling sun visible and run:
+
+```powershell
+python tools/live_test_managed_pickups.py --seconds 30 --yes
+```
+
+Confirm observed pickups are clicked, sun rises, one stationary pickup is not
+spam-clicked, confirmed counts rise after disappearance, and a strategic action
+remains usable afterward. `--yes` is mandatory because this tool sends input.
+
+### Partial read-only observation — 4 September 2026
+
+An observer-only attachment to a real paused Adventure level 7 Board read
+`game_scene=3`, `board_result=0`, and `level_complete=false` and returned
+`RUNNING` with reason `live_board_playing`. PID-bound process/window/Board
+health was coherent. No input was sent. This validates only the ordinary live
+Board mapping; WON, LOST, automatic reset, and managed pickups remain pending.
+
+### Training lifecycle update — 5 September 2026
+
+The supported controlled condition is Adventure 1-7. Terminal outcome mapping
+was live-observed for RUNNING, WON across Board teardown/Award, and LOST with a
+live Board/Zombies Won scene. The operator-assisted same-level verifier passed
+three times at level 7; managed pickup collection confirmed 11/11 sun pickups
+with zero failures.
+
+The initial automatic Menu failure was not a WindowRect, client-origin, DPI,
+or focus error. On GOTY 1.2.0.1073 the synthetic cursor must settle briefly
+after moving to the visible Menu control before its click is accepted. A
+driver-local 100 ms settle delay opened the normal Menu with one click; board
+controller and pickup click defaults were not changed. A settled Restart Level
+click visibly opened the native ``Restart Level?`` confirmation, and one Enter
+created a distinct level-7 Board at clock zero.
+
+Automatic active reset passed three consecutive times with distinct Board
+addresses and `RESET_OK` at level 7. An explicitly attested, already-visible
+normal Menu also reset successfully. `GameState.paused` alone remains
+insufficient evidence of that menu, so the default driver refuses externally
+ paused states without input. Native loss retry and same-level win reset remain
+ unvalidated; win reset is still refused.
+
+Loss reset calibration subsequently confirmed `GameOutcome.LOST` as
+`game_scene=4` and `board_result=2`. Enter did not activate the native Game
+Over screen's visible Try Again control. Its measured logical/client center is
+`(384, 369)` on the 800 by 600, 96-DPI client; one settled (100 ms) click at
+that coordinate restarted the game. The loss driver therefore uses that one
+settled click and leaves same-level/fresh-board proof to the reset verifier.
+
+Four clean loss-reset trials subsequently passed with a distinct Board, level
+7, clock zero, and `RESET_OK`. One separate trial in which game state had been
+manually contaminated was correctly rejected as `stale_entities`; it is not a
+clean lifecycle result and does not weaken the verifier.
+
+### Victory reward-pending investigation â€” 5 September 2026
+
+Natural Adventure 1-7 completion exposed a distinct live-Board victory state:
+the award plant/card was visibly present, the Board remained allocated, and
+the normal Menu was independently confirmed usable. During a 30-second
+read-only trace, `level_complete` remained false, so that field is not a
+reliable detector for this state. The version-pinned Board layout instead
+exposes `mLevelAwardSpawned` at `0x5624`; a read-only calibration of the same
+visible reward-pending state found it true, with `mBoardFadeOutCounter=-1` and
+`mNextSurvivalStageCounter=0`. The lifecycle outcome rule therefore treats a
+live Board with `mLevelAwardSpawned=true` as WON, while continuing to reject a
+retained `mBoardResult=WON` alone on a live Board. Once the Board is gone, the
+existing application-result fallback remains in effect.
+
+`tools/live_trace_win_transition.py` now records this award signal, related
+diagnostic counters, wave state, and zombie count. Automatic same-level win
+reset trial 1/3 passed from the visible reward-pending state: Board
+`427423864` became `222232168`, the observed level remained 7, the clock was
+0, and the verifier returned `reset_ok`. The resulting fresh Board read
+`mLevelAwardSpawned=false`, `mBoardResult=0`, wave 0/20, and no zombies. The
+remaining two clean natural win trials must use only Menu, Restart Level, and
+native confirmation, never the reward card, and must never advance to level 8.
