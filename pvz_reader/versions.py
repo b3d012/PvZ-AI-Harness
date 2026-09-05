@@ -23,6 +23,10 @@ OFFSETS = {
         "scene": 0x5564,
         "adventure_level": 0x5568,
         "game_paused": 0x17C,
+        # Board::mCutScene -> CutScene::mCutsceneTime. A native Game Over
+        # dialog is created when the latter reaches 11000.
+        "cut_scene": 0x174,
+        "cut_scene_time": 0x08,
         # Board::mLevelComplete. Kept outside GameState v1: it is lifecycle
         # evidence, not a strategic observation feature.
         "level_complete": 0x5614,

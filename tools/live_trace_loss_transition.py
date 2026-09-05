@@ -32,6 +32,8 @@ def main():
                 "outcome": outcome.outcome.value, "reason": outcome.reason,
                 "board_address": outcome.board_address, "game_scene": outcome.game_scene,
                 "board_result": outcome.board_result,
+                "loss_cutscene_time": outcome.loss_cutscene_time,
+                "loss_screen_ready": outcome.loss_screen_ready,
                 "paused": None if state is None else bool(state.paused),
                 "game_clock": None if state is None else int(state.game_clock),
             }

@@ -52,6 +52,8 @@ class OutcomeEvidence:
     board_fade_out_counter: int | None = None
     next_survival_stage_counter: int | None = None
     error: str | None = None
+    loss_cutscene_time: int | None = None
+    loss_screen_ready: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -97,10 +99,12 @@ def read_outcome(memory: Any) -> OutcomeEvidence:
                     next_survival_stage_counter,
                 )
             if scene == GameScene.ZOMBIES_WON:
+                cutscene_time = _read_loss_cutscene_time(memory, board, offsets)
                 return OutcomeEvidence(
                     GameOutcome.LOST, "game_scene_zombies_won", lawn, board,
                     scene, result, complete, award_spawned, fade_out_counter,
-                    next_survival_stage_counter,
+                    next_survival_stage_counter, None, cutscene_time,
+                    cutscene_time is not None and cutscene_time >= 11000,
                 )
             if scene in (GameScene.PLAYING, GameScene.CHALLENGE):
                 return OutcomeEvidence(
@@ -133,3 +137,14 @@ def read_outcome(memory: Any) -> OutcomeEvidence:
             GameOutcome.UNKNOWN, "outcome_read_failed",
             error=f"{type(error).__name__}:{error}",
         )
+
+
+def _read_loss_cutscene_time(memory: Any, board: int, offsets: dict[str, int]) -> int | None:
+    """Read the native loss-cutscene timer without weakening outcome evidence."""
+    try:
+        cutscene = int(memory.read_pointer(board + offsets["cut_scene"]))
+        if cutscene == 0:
+            return None
+        return int(memory.read_int(cutscene + offsets["cut_scene_time"]))
+    except Exception:
+        return None

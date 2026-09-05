@@ -103,12 +103,17 @@ class NormalUiRestartDriver:
     # for 100 ms. This is deliberately UI-driver-local: board controller
     # actions retain their established immediate-click behavior.
     UI_CONTROL_MOVE_SETTLE_DELAY = 0.10
+    # Native CutScene::UpdateZombiesWon creates the Game Over dialog at
+    # mCutsceneTime == 11000. This bound is separate from cursor settling.
+    LOSS_SCREEN_READY_TIMEOUT_SECONDS = 15.0
 
     def __init__(self, *, transition_timeout_seconds: float = 1.0,
                  poll_interval_seconds: float = 0.05, sleeper: Any = time.sleep,
-                 known_pause_menu: bool = False) -> None:
+                 known_pause_menu: bool = False,
+                 loss_screen_ready_timeout_seconds: float = LOSS_SCREEN_READY_TIMEOUT_SECONDS) -> None:
         self.transition_timeout_seconds = transition_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
+        self.loss_screen_ready_timeout_seconds = loss_screen_ready_timeout_seconds
         self._sleeper = sleeper
         # Only an explicit caller attestation from a preceding Menu probe may
         # enable this; GameState.paused alone is insufficient UI provenance.
@@ -134,7 +139,7 @@ class NormalUiRestartDriver:
                 return self._restart_open_menu(runtime, before)
             return self._restart_playing(runtime, before)
         if before.outcome is GameOutcome.LOST:
-            return self._restart_lost(runtime)
+            return self._restart_lost(runtime, before)
         if before.outcome is not GameOutcome.RUNNING:
             return ResetControlResult(False, f"unsupported_outcome:{before.outcome.value}")
         if not self._validate_client(runtime):
@@ -189,9 +194,11 @@ class NormalUiRestartDriver:
             return ResetControlResult(False, f"confirmation_input_failed:{type(error).__name__}:{error}")
         return ResetControlResult(True, "normal_menu_restart_requested")
 
-    def _restart_lost(self, runtime: Any) -> ResetControlResult:
+    def _restart_lost(self, runtime: Any, before: OutcomeEvidence) -> ResetControlResult:
         if not self._validate_client(runtime):
             return ResetControlResult(False, "unsupported_client_geometry")
+        if not self._wait_for_loss_screen(runtime, before):
+            return ResetControlResult(False, "loss_screen_not_ready")
         if runtime.outcome().outcome is not GameOutcome.LOST:
             return ResetControlResult(False, "loss_outcome_not_verified")
         try:
@@ -202,6 +209,26 @@ class NormalUiRestartDriver:
         except ControllerInputError as error:
             return ResetControlResult(False, f"loss_retry_input_failed:{type(error).__name__}:{error}")
         return ResetControlResult(True, "loss_try_again_requested")
+
+    def _wait_for_loss_screen(self, runtime: Any, before: OutcomeEvidence) -> bool:
+        """Wait read-only for the native Game Over dialog; never retry input."""
+        waited = 0.0
+        while True:
+            current = runtime.outcome()
+            if (
+                current.outcome is GameOutcome.LOST
+                and current.board_address == before.board_address
+                and current.loss_screen_ready is True
+            ):
+                return True
+            if waited >= self.loss_screen_ready_timeout_seconds:
+                return False
+            interval = min(
+                self.poll_interval_seconds,
+                self.loss_screen_ready_timeout_seconds - waited,
+            )
+            self._sleeper(interval)
+            waited += interval
 
     def _wait_for(self, runtime: Any, before: OutcomeEvidence, *, paused: bool) -> bool:
         waited = 0.0
