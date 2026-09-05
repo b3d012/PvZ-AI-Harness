@@ -17,7 +17,7 @@ class HarnessReleaseTests(unittest.TestCase):
         with (ROOT / "pyproject.toml").open("rb") as handle:
             project = tomllib.load(handle)["project"]
         self.assertEqual(project["name"], "pvz-ai-harness")
-        self.assertEqual(project["version"], "0.2.0")
+        self.assertEqual(project["version"], "0.2.1")
         self.assertEqual(project["license"]["text"], "GPL-3.0-only")
         self.assertEqual(project["scripts"]["pvz-runtime-test"], "pvz_runtime.cli:main")
         self.assertTrue((ROOT / "LICENSE").is_file())
