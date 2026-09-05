@@ -406,8 +406,13 @@ Be explicit about what was **not** tested or not completed.
   it must not absorb runtime safety, UI monitor, or training configuration into
   frozen reader/controller/environment/runtime layers.
 
-An unreleased `feat/phase4-training-support` branch contains the narrow
-terminal/reset/pickup lifecycle candidate for issue #16. Do not merge or tag it
-until the documented real RUNNING/WON/LOST, repeated reset, and falling-sun
-pickup protocols pass against GOTY 1.2.0.1073. The default restart driver must
-remain fail-closed until an automatic mechanism is live validated.
+**v0.2.0 training lifecycle support is live validated and preserves v1
+contracts.** `Board::mLevelAwardSpawned` at Board `+0x5624` is authoritative
+for a live reward-pending win on the supported client; `board_result` alone is
+unsafe while a Board exists. Reset postconditions (new Board, same level,
+fresh unpaused state, and clean entities) are authoritative. Unknown paused
+modals fail closed. The version-pinned UI driver applies only to the 800x600
+GOTY client and uses a 100 ms cursor-settle delay for Menu `(739, 13)`, Restart
+Level `(400, 358)`, and Try Again `(384, 369)`. The validated research
+condition is Adventure 1-7; do not substitute forced earlier levels, which
+were unstable on the target installation.

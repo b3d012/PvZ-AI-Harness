@@ -257,6 +257,32 @@ paused Adventure level 7 Board with application scene 3, Board result 0, and a
 false completion flag, producing \texttt{RUNNING}. No input was sent. This does
 not validate win, loss, reset, or pickup behavior.
 
+\section{Phase 4 Training Lifecycle Release}
+Version 0.2.0 retains every frozen v1 interface and adds a narrow lifecycle
+service above them. The supported research condition is Adventure 1-7 on the
+Windows GOTY 1.2.0.1073 client. Earlier forced-level experiments were unstable
+on the target installation, so the condition is prepared normally and checked
+through memory.
+
+Natural terminal evidence is separated from GameState v1. A live loss is
+identified by the zombies-won scene. A post-Board win retains the application
+result. The important live-Board win finding is
+\texttt{Board::mLevelAwardSpawned} at offset \texttt{0x5624}: during a visible,
+uncollected reward-card state at level 7, wave 20/20 and zero zombies, the
+field was true while \texttt{mLevelComplete} was false. Thus a retained
+\texttt{mBoardResult} alone is deliberately never accepted as a live-Board win.
+
+The reset driver is intentionally version-pinned to the 800 by 600 client.
+Menu, Restart Level, and native Try Again use logical coordinates
+\texttt{(739,13)}, \texttt{(400,358)}, and \texttt{(384,369)} respectively,
+with a 100 ms cursor-settle delay. The outer verifier requires a distinct
+Board, same Adventure level, fresh unpaused clock, expected seeds when
+configured, and clean entities. Live validation passed active restart,
+known-menu restart, four clean loss resets, three clean reward-pending win
+resets without collecting the reward card or entering level 8, and 11/11
+managed sun-pickup attempts. Pickup and strategic input remain serialized by
+the runtime lock.
+
 \section{Historical Pre-Phase-3 Portfolio Work}
 Before training begins: remove/ignore the local game, generated caches and raw traces; consider purging the game from Git history; add a concise root README with architecture/status/setup/report link and a statement that game files are not included; add reproducible Python environment metadata; add Windows CI for non-live tests; and tag the cleaned Phase 2 milestone (for example \texttt{phase-2-controller-v1}).
 \section{Conclusion}

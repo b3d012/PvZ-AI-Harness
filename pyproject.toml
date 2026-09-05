@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pvz-ai-harness"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Windows-safe, versioned AI integration harness for Plants vs. Zombies GOTY."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,9 +21,9 @@ classifiers = [
 dependencies = ["numpy==2.5.2", "psutil==7.2.2", "pymem==1.14.0"]
 
 [project.urls]
-Homepage = "https://github.com/b3d012/PvZ-DeepLearning"
-Repository = "https://github.com/b3d012/PvZ-DeepLearning"
-Issues = "https://github.com/b3d012/PvZ-DeepLearning/issues"
+Homepage = "https://github.com/b3d012/PvZ-AI-Harness"
+Repository = "https://github.com/b3d012/PvZ-AI-Harness"
+Issues = "https://github.com/b3d012/PvZ-AI-Harness/issues"
 
 [project.scripts]
 pvz-monitor = "pvz_runtime.monitor:launch_monitor"

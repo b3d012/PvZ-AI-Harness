@@ -4,9 +4,9 @@ A reverse-engineering and reinforcement-learning project built around the origin
 
 > **Current milestone: Phase 3.5 complete — the Phase 1–3.5 PvZ AI Harness is frozen at v0.1.0. Phase 4 deep-reinforcement-learning work is next.**
 
-> **Development status:** v0.1.0 remains the frozen public release. Phase 4
-> lifecycle support is implemented on a feature branch and awaits live
-> validation before a v0.2.0 release.
+> **Development status:** v0.2.0 adds live-validated Phase 4 training
+> lifecycle support while preserving every v1 contract. The validated research
+> condition is Adventure 1-7 on PvZ GOTY 1.2.0.1073.
 
 ## Quick start
 
@@ -68,7 +68,8 @@ The long-term goal is to train an AI agent to play the real game strategically r
 | Phase 2 | ✅ Complete | Controller v1: pickup, plant, shovel, safe Windows input |
 | Phase 3 | ✅ Complete | Environment v1 frozen after offline and end-to-end live validation |
 | Phase 3.5 | ✅ Complete / frozen | PID-bound runtime, watchdog, focus, pause/resume, diagnostics, monitor |
-| Phase 4 | Next | Deep-RL baselines and training |
+| Phase 4 lifecycle | Complete | Natural outcomes, same-level restart, managed pickups, runtime serialization |
+| Phase 4 learning | Next | Deep-RL baselines and training in PvZ-DeepLearning |
 | Phase 5 | Planned | Evaluation, ablations, strategy analysis and demos |
 
 ## Phase 1 — Game-state reader
@@ -163,9 +164,9 @@ Because GameState v1 lacks authoritative application-screen and natural
 win/loss fields, a missing Board is conservatively `MENU_OR_TRANSITION`, while
 terminal phases require a separately validated injected provider.
 
-## Phase 4 lifecycle candidate
+## Phase 4 training lifecycle support
 
-The unreleased training-support branch adds `GameOutcome` and raw
+v0.2.0 adds `GameOutcome` and raw
 `OutcomeEvidence`, `ResetResult` verification, `ManagedPickupCollector`, and
 `TrainingEpisodeSupport`. Outcome evidence is separate from GameState v1.
 Pickup clicks and strategic actions share `PvZRuntime.run_serialized()` and
@@ -173,10 +174,18 @@ the existing Controller v1 path. Reset success requires a distinct Board,
 matching Adventure level, expected seeds when supplied, a near-initial clock,
 an unpaused observable state, and no stale entities when configured.
 
-The default restart driver deliberately refuses requests. A target-specific
-automatic restart mechanism has not been live validated, so unattended
-multi-episode training is not yet supported by a release. See
-`docs/LIVE_RUNTIME_VALIDATION.md` for the operator protocol.
+`NormalUiRestartDriver` is version-pinned to the 800x600 GOTY client and sends
+input only after geometry, state, and outcome checks. It uses Menu `(739, 13)`,
+Restart Level `(400, 358)`, and loss Try Again `(384, 369)` with a 100 ms
+cursor-settle delay. Unknown paused modals fail closed. The outer verifier,
+not UI timing, proves a replaced Board, the same level, fresh clock, unpaused
+state, and clean entities.
+
+Live Board reward-pending victory is detected by `mLevelAwardSpawned` at Board
+`+0x5624`; `board_result` alone is never trusted while a Board exists. The
+validated Adventure 1-7 lifecycle covers active and known-pause-menu restart,
+four clean loss retries, three clean reward-pending win restarts, and 11/11
+managed sun pickups. See `docs/LIVE_RUNTIME_VALIDATION.md` for evidence.
 
 Launch the dependency-free Tk monitor:
 

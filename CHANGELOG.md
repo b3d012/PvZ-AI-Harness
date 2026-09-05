@@ -6,15 +6,25 @@ schema versions.
 
 ## [Unreleased]
 
+## [0.2.0]
+
+- Added live-validated natural RUNNING/WON/LOST lifecycle evidence without
+  changing GameState v1.
+- Added `Board::mLevelAwardSpawned` (`+0x5624`) for a live reward-pending win;
+  a retained BoardResult alone remains nonterminal while a Board exists.
+- Added verified same-level restart through active, known pause-menu, loss
+  Try Again, and live reward-pending win paths.
+- Added managed pickup collection under runtime serialization.
+- Validated on GOTY 1.2.0.1073 / Adventure 1-7: loss reset 4/4, win reset
+  3/3, and managed sun collection 11/11.
+
 - Added typed, memory-backed `RUNNING` / `WON` / `LOST` / `UNKNOWN` outcome
   evidence for the supported GOTY layout without changing GameState v1.
 - Added fail-closed same-level reset postcondition verification behind a
-  pluggable restart driver. No automatic restart driver is claimed until live
-  validation is complete.
+  pluggable restart driver.
 - Added synchronous managed pickup collection, deduplication, confirmation
   metrics, and composition through `TrainingEpisodeSupport`.
 - Added offline lifecycle tests and dedicated terminal/reset/pickup live tools.
-- This work is a v0.2.0 candidate only; it is not released or live-validated.
 
 ## [0.1.0] — 2026-09-04
 
@@ -28,4 +38,5 @@ schema versions.
 - Recorded successful operator-verified end-to-end Environment v1 and runtime
   validation against the supported PvZ GOTY client.
 
-[0.1.0]: https://github.com/b3d012/PvZ-DeepLearning/releases/tag/v0.1.0
+[0.2.0]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.2.0
+[0.1.0]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.1.0

@@ -103,6 +103,35 @@ is therefore complete and frozen as the stable pre-Phase-4 boundary.
 
 ## Unreleased Phase 4 training-support validation
 
+## Final v0.2.0 lifecycle validation â€” 5 September 2026
+
+Supported client: PvZ GOTY 1.2.0.1073. The controlled research condition is
+Adventure 1-7, prepared normally because forced earlier Adventure levels were
+unstable on this installation.
+
+| Capability | Result |
+| --- | --- |
+| RUNNING outcome | validated |
+| LOST outcome | validated (`game_scene=ZOMBIES_WON`, result LOST) |
+| WON after Board teardown | validated (application result WON) |
+| WON with live reward-pending Board | validated (`mLevelAwardSpawned`, Board `+0x5624`) |
+| Active restart | validated |
+| Known normal pause-menu restart | validated |
+| Native Try Again loss restart | 4/4 clean resets |
+| Reward-pending win restart | 3/3 clean resets |
+| Managed sun pickups | 11/11 successes, 0 failures |
+
+The reward-pending win field was true at level 7, wave 20/20, with zero
+zombies while `level_complete` remained false. A live Board does not trust
+`board_result` alone, including a retained value from an earlier episode.
+
+All validated UI controls use the 800 by 600 logical client and a 100 ms
+move-settle delay: Menu `(739, 13)`, Restart Level `(400, 358)`, and Try Again
+`(384, 369)`. No reward card was clicked in win-reset validation and Adventure
+1-8 was never entered. `RESET_OK` requires a new Board pointer, level 7, a
+near-zero unpaused clock, and clean entities; a manually contaminated Board
+was correctly rejected as `stale_entities` and is not a clean-trial failure.
+
 These checks are pending and must all pass before merge or release. Prepare the
 exact experiment level in active gameplay, then run:
 
