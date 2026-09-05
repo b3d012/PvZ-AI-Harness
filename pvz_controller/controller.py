@@ -146,22 +146,22 @@ class PvZController:
             return ActionResult(False, False, "game_paused")
 
         try:
-            seed_point = seed_slot_to_client(seed_slot)
-        except (TypeError, ValueError) as error:
-            return ActionResult(False, False, f"invalid_seed_slot:{error}")
-
-        try:
-            tile_point = tile_to_client(row, col)
-        except (TypeError, ValueError) as error:
-            return ActionResult(False, False, f"invalid_tile:{error}")
-
-        try:
             seed = next((candidate for candidate in seeds if candidate.slot == seed_slot), None)
         except TypeError:
             return ActionResult(False, False, "invalid_game_state")
 
         if seed is None:
             return ActionResult(False, False, "invalid_seed_slot")
+
+        try:
+            seed_point = seed_slot_to_client(seed_slot, seed_count=len(seeds))
+        except (TypeError, ValueError) as error:
+            return ActionResult(False, False, f"invalid_seed_slot:{error}")
+
+        try:
+            tile_point = tile_to_client(row, col, scene=state.scene)
+        except (TypeError, ValueError) as error:
+            return ActionResult(False, False, f"invalid_tile:{error}")
 
         placement = can_plant(state, seed_slot, row, col)
         if not placement.valid:
@@ -217,6 +217,7 @@ class PvZController:
             paused = state.paused
             plants = state.plants
             seed_count = len(state.seeds)
+            scene = state.scene
         except (AttributeError, TypeError):
             return ActionResult(False, False, "invalid_game_state")
 
@@ -229,7 +230,7 @@ class PvZController:
             return ActionResult(False, False, f"coordinate_out_of_bounds:{error}")
 
         try:
-            tile_point = tile_to_client(row, col)
+            tile_point = tile_to_client(row, col, scene=scene)
         except (TypeError, ValueError) as error:
             return ActionResult(False, False, f"invalid_tile:{error}")
 

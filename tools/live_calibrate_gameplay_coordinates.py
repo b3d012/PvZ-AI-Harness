@@ -60,21 +60,23 @@ def main():
                 report["seed_packets"].append({
                     "slot": seed.slot, "type_id": seed.type_id, "name": seed.name,
                     "measured_client": measured,
-                    "predicted_client": seed_slot_to_client(seed.slot),
+                    "predicted_client": seed_slot_to_client(
+                        seed.slot, seed_count=len(state.seeds),
+                    ),
                 })
         if args.rows:
             for row in range(5):
                 measured = sample(f"Move cursor to visible lane {row} center at column 4.", backend, area)
                 report["row_centers"].append({
                     "row": row, "measured_client": measured,
-                    "predicted_client": tile_to_client(row, 4),
+                    "predicted_client": tile_to_client(row, 4, scene=state.scene),
                 })
         if args.columns:
             for col in (0, 4, 8):
                 measured = sample(f"Move cursor to tile center row 2, column {col}.", backend, area)
                 report["column_centers"].append({
                     "col": col, "measured_client": measured,
-                    "predicted_client": tile_to_client(2, col),
+                    "predicted_client": tile_to_client(2, col, scene=state.scene),
                 })
         print(json.dumps(report, indent=2, sort_keys=True))
     finally:
