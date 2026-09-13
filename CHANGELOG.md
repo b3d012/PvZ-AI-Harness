@@ -6,6 +6,13 @@ schema versions.
 
 ## [Unreleased]
 
+## [0.2.2]
+
+- Kept same-level reset verification fail-closed while tolerating the bounded
+  native spawn-preview zombie window during a fresh board's READY transition.
+  Inherited plants, late entities, wrong levels, and seed-bank mismatches still
+  fail immediately; a board that never becomes clean returns `stale_entities`.
+
 ## [0.2.1]
 
 - Corrected Controller v1's in-level seed-bank targeting with the supported
@@ -57,4 +64,5 @@ schema versions.
 
 [0.2.0]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.2.0
 [0.2.1]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.2.1
+[0.2.2]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.2.2
 [0.1.0]: https://github.com/b3d012/PvZ-AI-Harness/releases/tag/v0.1.0

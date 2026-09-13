@@ -259,6 +259,20 @@ class ResetTests(unittest.TestCase):
             ResetStatus.STALE_ENTITIES,
         )
 
+    def test_startup_zombies_are_tolerated_until_clean_ready_snapshot(self):
+        runtime = ResetRuntime(
+            [state(clock=500), state(clock=0, zombies=[1]), state(clock=3)],
+            [10, 20, 20],
+        )
+        result = self.support(runtime).reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.RESET_OK)
+        self.assertEqual(result.board_address, 20)
+
+    def test_startup_zombies_timeout_remains_stale(self):
+        runtime = ResetRuntime([state(clock=500), state(clock=0, zombies=[1])], [10, 20])
+        result = self.support(runtime, timeout=0.0).reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.STALE_ENTITIES)
+
 
 class RestartInput:
     def __init__(self, runtime, *, fail=None, opens_menu=True):

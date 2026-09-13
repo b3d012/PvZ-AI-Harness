@@ -151,7 +151,9 @@ version-pinned `NormalUiRestartDriver` is an explicit opt-in. `RESET_OK`
 additionally requires a
 different Board address, expected Adventure level and optional seed types, an
 unpaused near-initial clock, observable health, and normally empty plant and
-zombie sets.
+zombie sets. A bounded READY transition may briefly expose native spawn-preview
+zombies; reset verification continues polling for a clean snapshot. Plants or
+entities after the initial-clock window remain a fail-closed stale reset.
 
 `ManagedPickupCollector.collect_once()` is synchronous and calls only
 `PvZRuntime.execute(COLLECT_PICKUP)` under `run_serialized()`. Pending pickup

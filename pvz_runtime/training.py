@@ -363,6 +363,7 @@ class TrainingEpisodeSupport:
 
         waited = 0.0
         last_board = before.board_address
+        startup_zombies_seen = False
         while waited <= self.reset_timeout_seconds:
             state = runtime.observe()
             after = runtime.outcome()
@@ -379,7 +380,18 @@ class TrainingEpisodeSupport:
                     if seeds != expectation.seed_type_ids:
                         return ResetResult(ResetStatus.SEED_BANK_MISMATCH, "seed_bank_mismatch", before.board_address, last_board, level, clock)
                 if expectation.require_empty_entities and (state.plants or state.zombies):
-                    return ResetResult(ResetStatus.STALE_ENTITIES, "fresh_board_contains_entities", before.board_address, last_board, level, clock)
+                    # The game can briefly expose native spawn-preview zombies while
+                    # the new board is entering READY.  They are not inherited
+                    # entities, but plants must never be tolerated because they can
+                    # affect the learning episode.  Keep polling only within the
+                    # bounded initial-clock window; a playing board with entities
+                    # remains a hard stale-state failure.
+                    if state.plants or clock > expectation.max_initial_game_clock:
+                        return ResetResult(ResetStatus.STALE_ENTITIES, "fresh_board_contains_entities", before.board_address, last_board, level, clock)
+                    startup_zombies_seen = True
+                    self._sleeper(self.reset_poll_interval_seconds)
+                    waited += self.reset_poll_interval_seconds
+                    continue
                 if clock <= expectation.max_initial_game_clock and not bool(state.paused) and runtime.health.can_observe:
                     return ResetResult(ResetStatus.RESET_OK, "fresh_same_level_board_verified", before.board_address, last_board, level, clock)
             if waited == self.reset_timeout_seconds:
@@ -387,6 +399,8 @@ class TrainingEpisodeSupport:
             interval = min(self.reset_poll_interval_seconds, self.reset_timeout_seconds - waited)
             self._sleeper(interval)
             waited += interval
+        if startup_zombies_seen:
+            return ResetResult(ResetStatus.STALE_ENTITIES, "fresh_board_contains_entities", before.board_address, last_board)
         status = ResetStatus.BOARD_NOT_REPLACED if last_board == before.board_address else ResetStatus.TIMEOUT
         return ResetResult(status, "reset_verification_timeout", before.board_address, last_board)
 
