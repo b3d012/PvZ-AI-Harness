@@ -380,6 +380,32 @@ class TrainingEpisodeSupport:
                     if seeds != expectation.seed_type_ids:
                         return ResetResult(ResetStatus.SEED_BANK_MISMATCH, "seed_bank_mismatch", before.board_address, last_board, level, clock)
                 if expectation.require_empty_entities and (state.plants or state.zombies):
+                    if state.plants:
+                        # observe() and outcome() are separate public reads. During
+                        # Board replacement they can straddle the transition and
+                        # pair old-board entities with the new Board address. A
+                        # single confirmation read distinguishes that race from
+                        # genuinely inherited plants; persistent plants remain a
+                        # hard stale-state failure.
+                        self._sleeper(self.reset_poll_interval_seconds)
+                        waited += self.reset_poll_interval_seconds
+                        confirmed_state = runtime.observe()
+                        confirmed_outcome = runtime.outcome()
+                        last_board = confirmed_outcome.board_address
+                        if (
+                            confirmed_state is not None
+                            and confirmed_outcome.board_address not in (None, before.board_address)
+                            and not confirmed_state.plants
+                        ):
+                            state = confirmed_state
+                            after = confirmed_outcome
+                            level = int(state.adventure_level)
+                            clock = int(state.game_clock)
+                        else:
+                            return ResetResult(ResetStatus.STALE_ENTITIES, "fresh_board_contains_entities", before.board_address, last_board, level, clock)
+                    if state.plants:
+                        return ResetResult(ResetStatus.STALE_ENTITIES, "fresh_board_contains_entities", before.board_address, last_board, level, clock)
+                if expectation.require_empty_entities and (state.plants or state.zombies):
                     # The game can briefly expose native spawn-preview zombies while
                     # the new board is entering READY.  They are not inherited
                     # entities, but plants must never be tolerated because they can
