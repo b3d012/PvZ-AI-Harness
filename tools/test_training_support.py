@@ -273,6 +273,22 @@ class ResetTests(unittest.TestCase):
         result = self.support(runtime, timeout=0.0).reset_current_level(ResetExpectation(5))
         self.assertEqual(result.status, ResetStatus.STALE_ENTITIES)
 
+    def test_mixed_old_plant_snapshot_is_confirmed_before_rejection(self):
+        runtime = ResetRuntime(
+            [state(clock=500), state(clock=0, plants=[1]), state(clock=3)],
+            [10, 20, 20],
+        )
+        result = self.support(runtime).reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.RESET_OK)
+
+    def test_persistent_new_board_plants_remain_stale(self):
+        runtime = ResetRuntime(
+            [state(clock=500), state(clock=0, plants=[1]), state(clock=3, plants=[1])],
+            [10, 20, 20],
+        )
+        result = self.support(runtime).reset_current_level(ResetExpectation(5))
+        self.assertEqual(result.status, ResetStatus.STALE_ENTITIES)
+
 
 class RestartInput:
     def __init__(self, runtime, *, fail=None, opens_menu=True):
